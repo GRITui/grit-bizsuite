@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Decimal } from "@prisma/client/runtime/client";
 import { requireTenantId } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
-import { OrderChannel, OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
+import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
 import { errorResponse, HttpError, readJsonBody } from "../../_lib/http";
 import { findOrderForTenant, serializeOrder } from "../../_lib/queries";
 import { parseMoneyInput, sumDecimals } from "../../_lib/pricing";
@@ -80,11 +80,17 @@ export async function POST(
           status: PaymentStatus.succeeded,
         },
       }),
+      // Note: `channel` is deliberately left untouched here. Staff can
+      // tender any in-progress order regardless of how it originated (a QR
+      // dine-in order or an abandoned pickup_link order can both be
+      // collected at the register), and forcing channel to "dine_in" on
+      // every tender would silently destroy that provenance — which is the
+      // only source of truth for channel-based reporting, since QR orders
+      // have no other checkout path that could have preserved it.
       prisma.order.update({
         where: { id: orderId },
         data: {
           status: isFullyPaid ? OrderStatus.closed : OrderStatus.tendered,
-          channel: OrderChannel.dine_in,
         },
       }),
     ]);

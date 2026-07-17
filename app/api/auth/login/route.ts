@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createSession, verifyPassword } from "@/lib/auth";
+import { rateLimit } from "@/lib/rateLimit";
 
 interface LoginBody {
   slug?: string;
@@ -8,7 +9,16 @@ interface LoginBody {
   password?: string;
 }
 
+// Credential-guessing endpoint reachable by anyone, unauthenticated — rate
+// limit it same as the other public-facing routes so it can't be brute
+// forced. Keyed by client IP (see lib/rateLimit.ts), generous enough for a
+// legitimate staff member fat-fingering their password a few times.
 export async function POST(request: Request) {
+  const limitResult = rateLimit(request, { limit: 10, windowMs: 60_000 });
+  if (!limitResult.success) {
+    return NextResponse.json({ error: "Too many attempts. Please try again shortly." }, { status: 429 });
+  }
+
   let body: LoginBody;
   try {
     body = await request.json();

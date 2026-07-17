@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createSession, hashPassword } from "@/lib/auth";
+import { rateLimit } from "@/lib/rateLimit";
 
 // Bootstraps a brand-new restaurant account: creates the Tenant and its
 // first (owner) User together, in one transaction, then logs that user in.
@@ -13,7 +14,14 @@ interface RegisterBody {
   password?: string;
 }
 
+// Unauthenticated, DB-writing endpoint — rate limit it so it can't be used
+// to spam-create tenants/accounts.
 export async function POST(request: Request) {
+  const limitResult = rateLimit(request, { limit: 5, windowMs: 60_000 });
+  if (!limitResult.success) {
+    return NextResponse.json({ error: "Too many attempts. Please try again shortly." }, { status: 429 });
+  }
+
   let body: RegisterBody;
   try {
     body = await request.json();

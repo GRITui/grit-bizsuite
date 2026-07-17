@@ -4,7 +4,11 @@ import { AuthError, requireTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import SignOutButton from "@/components/pos/SignOutButton";
 
-export default async function PosLayout({ children }: { children: React.ReactNode }) {
+export default async function ReconciliationLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   let session;
   try {
     session = await requireTenant();
@@ -28,8 +32,8 @@ export default async function PosLayout({ children }: { children: React.ReactNod
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{session.email}</p>
         </div>
         <nav className="flex items-center gap-4">
-          <Link href="/reconciliation" className="text-sm text-zinc-500 underline dark:text-zinc-400">
-            Reconciliation
+          <Link href="/pos" className="text-sm text-zinc-500 underline dark:text-zinc-400">
+            POS
           </Link>
           <SignOutButton />
         </nav>

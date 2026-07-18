@@ -39,3 +39,19 @@ Heed deprecation notices.
 Packages ship TypeScript source (no build step). The taskboard app mirrors the
 webhook verification in plain JS (`apps/grit-taskboard/lib/gritEvents.js`) —
 wire-format changes must be made in both places.
+
+## AI orchestration convention (project owner preference)
+
+Substantive AI work on this repo runs as 3-layer multi-model orchestration:
+
+1. **Architect/Gate (top-tier model, main loop)** — decomposition, task specs,
+   integration decisions, adversarial final review, commits/pushes.
+2. **Builders/QC (mid-tier, e.g. Sonnet)** — scoped implementation and
+   verification tasks, each confined to a disjoint directory slice, each
+   self-verifying (tsc / build / tests) before returning.
+3. **Mechanical sweeps (small-tier, e.g. Haiku)** — lint/typecheck fix loops,
+   doc syncs, repetitive per-file transforms.
+
+Agents must own disjoint paths (no two agents write the same directory), and
+cross-cutting files (root configs, shared packages) belong to the architect
+layer only.

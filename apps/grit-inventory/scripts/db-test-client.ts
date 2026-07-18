@@ -24,6 +24,13 @@ export async function cleanupTenant(tenantId: string) {
   await db.deliveryStatusEvent.deleteMany({ where: { delivery: { tenantId } } });
   await db.delivery.deleteMany({ where: { tenantId } });
   await db.payment.deleteMany({ where: { order: { tenantId } } });
+  // Grit pivot tables: consumption rows reference movements and lots, so they
+  // go first; StoreStock/StockLot/transfers reference stores and variants.
+  await db.stockLotConsumption.deleteMany({ where: { tenantId } });
+  await db.stockLot.deleteMany({ where: { tenantId } });
+  await db.storeStock.deleteMany({ where: { tenantId } });
+  await db.stockTransferItem.deleteMany({ where: { transfer: { tenantId } } });
+  await db.stockTransfer.deleteMany({ where: { tenantId } });
   await db.stockMovement.deleteMany({ where: { tenantId } });
   await db.orderLine.deleteMany({ where: { order: { tenantId } } });
   await db.order.deleteMany({ where: { tenantId } });

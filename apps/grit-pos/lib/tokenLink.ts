@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { resolveTraits } from "@/lib/traits";
 
 // ---------------------------------------------------------------------------
 // Tokenized anonymous access — the mechanism behind QR dine-in table links
@@ -22,13 +23,27 @@ export function generateToken(): string {
  * tenantId, so callers can scope subsequent queries) or `null` if the token
  * doesn't match any table — callers should treat that as a generic 404, not
  * leak whether the token was merely malformed vs. genuinely unknown.
+ *
+ * Plugin-trait gate: when the owning tenant has the "hospitality.tables"
+ * trait disabled (lib/traits.ts), the token resolves to `null` too — this is
+ * the single choke point through which every QR dine-in surface
+ * (app/t/[tableToken] and app/api/public/table/**) resolves a table, so
+ * gating here hides the whole feature behind the same generic 404.
  */
 export async function verifyTableToken(token: string) {
   if (!token) return null;
 
   const table = await prisma.table.findUnique({
     where: { token },
+    include: { tenant: { select: { enabledTraits: true } } },
   });
+  if (!table) return null;
+  if (!resolveTraits(table.tenant.enabledTraits).has("hospitality.tables")) {
+    return null;
+  }
 
-  return table ?? null;
+  // Strip the joined tenant so the return keeps the legacy Table shape.
+  const { tenant, ...tableOnly } = table;
+  void tenant;
+  return tableOnly;
 }

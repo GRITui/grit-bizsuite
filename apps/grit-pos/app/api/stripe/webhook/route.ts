@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
 import { verifyStripeWebhook } from "@/lib/stripe";
 import { rateLimit } from "@/lib/rateLimit";
+import { publishTransactionCompleted } from "@/lib/events";
+import { checkVelocitySurge } from "@/lib/velocity";
 
 // POST /api/stripe/webhook
 //
@@ -80,6 +83,38 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
         stripePaymentIntentId: paymentIntentId,
       },
     });
+  });
+
+  // Grit BizSuite events — the payment transaction above has committed, so
+  // fire transaction.completed AFTER the webhook response when this payment
+  // made the order fully paid. Fire-and-forget: event plumbing must never
+  // fail Stripe confirmation (a 500 here would trigger Stripe redelivery).
+  const paid = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      lines: { include: { variant: { select: { sku: true } } } },
+      payments: { where: { status: PaymentStatus.succeeded }, select: { amount: true } },
+    },
+  });
+  if (!paid || paid.lines.length === 0) return;
+
+  const subtotal = paid.lines.reduce((sum, l) => sum.plus(l.lineTotal), new Prisma.Decimal(0));
+  const paidTotal = paid.payments.reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
+  if (!paidTotal.greaterThanOrEqualTo(subtotal)) return;
+
+  after(async () => {
+    await publishTransactionCompleted({
+      tenantId: paid.tenantId,
+      orderId: paid.id,
+      totalAmount: Number(subtotal),
+      lines: paid.lines.map((line) => ({
+        productId: line.productId,
+        variantSku: line.variant?.sku ?? null,
+        quantity: line.quantity,
+        unitPrice: Number(line.unitPrice),
+      })),
+    });
+    await checkVelocitySurge(paid.tenantId);
   });
 }
 

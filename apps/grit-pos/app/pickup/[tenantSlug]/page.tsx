@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { resolveTenantBySlug } from "@/app/api/pickup/_resolve";
 import { PickupOrderingApp } from "@/components/pickup/PickupOrderingApp";
 import type { CatalogCategory } from "@/components/pickup/types";
 
@@ -15,10 +16,9 @@ export default async function PickupPage({
 }) {
   const { tenantSlug } = await params;
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true, name: true },
-  });
+  // Gated resolver: also returns null (-> generic 404) when the tenant has
+  // the "hospitality.pickup_links" plugin trait disabled.
+  const tenant = await resolveTenantBySlug(tenantSlug);
   if (!tenant) {
     // Generic 404 — see app/pickup/[tenantSlug]/not-found.tsx. Deliberately
     // does not distinguish "malformed slug" from "unknown slug".

@@ -63,6 +63,19 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Optional plugin traits enabled for this tenant (see lib/traits.ts).
+  /// Hospitality traits default ON so existing tenants keep their behavior;
+  /// "retail.variant_matrix" is opt-in.
+  enabledTraits String[] @default(["hospitality.tables", "hospitality.pickup_links"])
+
+  /// Grit BizSuite commercial tier ("LITE" | "GROWTH" | "SCALE") — mirrors
+  /// organizations.tier in @grit/database. Kept as String (not an enum) so
+  /// adding tiers later is a plain migration, matching the platform schema.
+  tier   String   @default("LITE")
+  /// Addon marketplace flags, e.g. "custom_reporting" — mirrors
+  /// organization_addons in @grit/database (flattened to a string[] here).
+  addons String[] @default([])
+
   users                 User[]
   tables                Table[]
   categories            Category[]
@@ -155,9 +168,21 @@ model Variant {
   name       String
   priceDelta Decimal @db.Decimal(10, 2) @default(0)
 
+  /// Denormalized tenant scope so `sku` can be unique per tenant (the
+  /// canonical @grit/database schema makes product_variants.sku globally
+  /// unique — divergence noted in README). Nullable: legacy hospitality
+  /// variants have neither tenantId nor sku.
+  tenantId String?
+  /// Optional child SKU for retail variant-matrix products (e.g. TSHIRT-L-BLK).
+  sku String? @db.VarChar(100)
+  /// Attribute axes for matrix variants, e.g. {"size":"L","color":"black"} —
+  /// mirrors product_variants.attributes in @grit/database.
+  attributes Json?
+
   product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   orderLines OrderLine[]
 
+  @@unique([tenantId, sku])
   @@index([productId])
   @@map("variants")
 }
@@ -254,6 +279,11 @@ model Payment {
   amount                Decimal       @db.Decimal(10, 2)
   status                PaymentStatus @default(pending)
   stripePaymentIntentId String?
+  /// Client-generated idempotency key for offline-captured operations
+  /// (offline queue sync). Unique when present so a retried sync can never
+  /// double-book a payment — mirrors transactions.external_ref in
+  /// @grit/database (camelCase column, matching this app's convention).
+  externalRef           String?       @unique @db.VarChar(100)
   createdAt             DateTime      @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -262,6 +292,27 @@ model Payment {
   @@index([tenderType])
   @@index([status])
   @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Cross-app event outbox (Grit BizSuite)
+// ---------------------------------------------------------------------------
+
+/// Durable outbox for @grit/shared-events, written by @grit/database's
+/// `createNeonOutboxStore` against this app's own DATABASE_URL. Mirrors the
+/// canonical `event_outbox` table in packages/database exactly (snake_case
+/// columns, uuid organization scope) — the store's raw SQL must line up.
+/// This app only reads it directly for velocity-surge dedupe (lib/velocity.ts).
+model EventOutbox {
+  eventId        String    @id @map("event_id") @db.VarChar(100)
+  eventName      String    @map("event_name") @db.VarChar(100)
+  organizationId String?   @map("organization_id") @db.Uuid
+  payload        Json
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  deliveredAt    DateTime? @map("delivered_at") @db.Timestamp(6)
+
+  @@index([createdAt], map: "event_outbox_created_at_idx")
+  @@map("event_outbox")
 }
 
 // ---------------------------------------------------------------------------

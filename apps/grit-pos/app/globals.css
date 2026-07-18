@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Tailwind must scan @grit/shared-ui's source so its utility classes exist. */
+@source "../../../packages/shared-ui/src";
 
 :root {
   --background: #ffffff;

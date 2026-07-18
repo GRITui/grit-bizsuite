@@ -27,7 +27,7 @@ export function createNeonOutboxStore(sqlUrl: string): OutboxStore {
         VALUES (
           ${event.event_id},
           ${event.event},
-          ${event.organization_id}::uuid,
+          ${event.organization_id},
           ${JSON.stringify(event)}::jsonb,
           ${event.timestamp}::timestamp
         )

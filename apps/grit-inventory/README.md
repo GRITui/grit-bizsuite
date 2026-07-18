@@ -1,8 +1,11 @@
-# Invento
+# Grit Inventory (formerly Invento)
 
-Order-fulfillment, inventory, and delivery ops tool. Milestone 1 (MVP): an
-admin-only internal console — staff enter and fulfill orders, manage stock,
-and track manual deliveries. No public storefront or checkout.
+Order-fulfillment, inventory, and delivery ops tool — now the inventory app
+of the **Grit BizSuite** (multi-location stock, transfer orders, FIFO
+costing, POS event ingestion). Milestone 1 (MVP) shipped an admin-only
+internal console — staff enter and fulfill orders, manage stock, and track
+manual deliveries; the Grit pivot (below) executed the documented Milestone 2
+multi-store plan on top of it. No public storefront or checkout.
 
 See `docs/ecommerce-stack-handoff.md` for the full architecture spec this
 build implements (stack decision, milestone scope, and the Milestone 2
@@ -104,3 +107,158 @@ safe to run repeatedly against a shared dev database.
 Per the handoff: no public storefront/checkout, no third-party courier
 integration, no dedicated forecasting/ML service. See the handoff's "Open
 Questions" section for what would need answering before scoping those.
+
+---
+
+## Grit BizSuite pivot
+
+This app is `apps/grit-inventory` in the Grit BizSuite monorepo. The pivot
+executed the app's own documented M2 multi-store plan (handoff §4.1) and
+wired the app into the suite's shared packages. All schema changes are
+additive — migration
+`prisma/migrations/20260718100000_grit_inventory_pivot/migration.sql`
+(includes a data backfill of one `StoreStock` row per variant from the M1
+`Variant.quantityOnHand` aggregate, targeting each tenant's default store).
+
+### Multi-location stock
+
+- **`StoreStock`** (`tenantId, storeId, variantId, quantityOnHand,
+  reorderThreshold`, unique on the triple) is the authoritative per-store
+  quantity. `Variant.quantityOnHand` is kept as a **maintained aggregate**
+  (sum of stores, updated in the same transaction) so all existing screens
+  and reports keep working.
+- `applyStockMovement` (`src/lib/inventory.ts`) gained a `storeId` parameter
+  (defaults to the tenant's default store), locks the `StoreStock` row (the
+  variant row lock is still taken first, preserving the M1 serialization
+  guarantees), and maintains the aggregate. `allowNegative` supports POS
+  sale ingestion (the sale already happened; the ledger records it).
+- **`Store`** gained `type` (`retail` | `warehouse` | `service_hub` |
+  `kitchen`, default `retail`) and tenants may hold multiple stores. Admin
+  UI: `/admin/stores` (create/rename; the default store cannot be deleted).
+- Products list (`/admin/products`) gets a per-store filter for entitled
+  (SCALE) tenants.
+
+### Transfer orders
+
+- **`StockTransfer`** (`draft → in_transit → received`, cancellable from
+  draft/in_transit) + **`StockTransferItem`**. Dispatch decrements the source
+  store (`transfer_out` movements, FIFO-drained; the per-unit FIFO cost is
+  captured on each item), receipt increments the destination (`transfer_in`,
+  creating lots at the carried cost), in-transit cancellation restores the
+  source. New `StockMovementReason` values: `transfer_out`, `transfer_in`
+  (plus `pos_sale`).
+- API: `POST /api/transfers` (create draft), `GET /api/transfers`,
+  `POST /api/transfers/[id]/transition`. Admin UI: `/admin/transfers`.
+- Reaching `received` publishes `inventory.transfer_completed`.
+
+### FIFO costing
+
+- **`StockLot`** cost layers: every positive movement (restock, positive
+  manual adjustment, `transfer_in`, `return`) creates a lot (`unitCost`
+  input optional; defaults to the new `Variant.unitCost`, else 0).
+- Consumption (`pos_sale`, `order_fulfillment`, `transfer_out`, negative
+  adjustments) drains lots oldest-first inside the same transaction
+  (`src/lib/fifo.ts: consumeFifo`), writing **`StockLotConsumption`** audit
+  rows (`movementId, lotId, quantity, unitCost`; `lotId` null = fallback).
+  Missing lots never block: the shortfall is costed at `Variant.unitCost`
+  and logged.
+- `GET /api/reports/cogs?from&to[&format=csv]` — FIFO COGS per variant from
+  the drained-lot records (JSON default, CSV export). `transfer_out`
+  consumption is excluded (moved, not sold).
+
+### Events (in/out) — @grit/shared-events
+
+- **Inbound**: `POST /api/events/grit` verifies the HMAC webhook
+  (`GRIT_EVENT_WEBHOOK_SECRET`), validates with `parseGritEvent`, dedupes on
+  `event_id` via the new **`ProcessedEvent`** table, and on
+  `transaction.completed` decrements stock per item (reason `pos_sale`,
+  FIFO drain, negative allowed). Unknown SKUs are skipped and listed in the
+  200 response's `warnings`. The route is excluded from the session gate in
+  `src/proxy.ts` (HMAC is its authentication).
+  - **Tenancy mapping**: the envelope's `organization_id` is resolved by
+    **equality with `Tenant.id`** — the platform organization id and this
+    app's tenant id are the same identifier. `location_id` is matched
+    against `Store.id`, falling back to the tenant's default store.
+- **Outbound**: after each webhook decrement, if the store's stock is at or
+  below its `reorderThreshold`, `inventory.threshold_breached` is published
+  via `GritEventBus` + `createNeonOutboxStore` (`@grit/database`), with
+  `supplier_name` from the new `Product.supplierName` when set.
+  `inventory.transfer_completed` is published on transfer receipt.
+- **Outbox + drain**: publishes are durably recorded in a local
+  `event_outbox` table (mirrors `@grit/database`; **divergence:**
+  `organization_id` is `TEXT` here because this app's tenant ids are cuids,
+  not uuids). `GET /api/cron/events-drain` (CRON_SECRET-guarded, scheduled
+  in `vercel.json`) re-delivers failures via `drainOutbox()`. Outbox errors
+  are logged and never block the business operation.
+- Everything degrades gracefully: with no `GRIT_EVENT_WEBHOOK_SECRET` /
+  `GRIT_SUBSCRIBERS_*` / `DATABASE_URL`, event features are simply inert.
+
+### Passport gates — @grit/passport
+
+- `Tenant` gained additive `tier` (default `GROWTH`) and `addons` columns.
+  `src/lib/passport.ts` bridges the existing JWT session to the shared
+  `GritSession` (`tenantId → organizationId`, `storeId → locationId`,
+  `OWNER → owner`, `ADMIN → manager`, `STAFF → staff`).
+- Feature gates (`hasFeatureAccess` / `assertFeature`):
+  - `inventory.multi_location` — stores admin page, store filter UI, and any
+    operation on (or listing of) a non-default store. GROWTH tenants are
+    gated from reading multiple location tables: the store filter is hidden
+    and APIs return 403 (`FEATURE_NOT_ENTITLED`) for non-default stores.
+  - `inventory.transfers` — transfers page + APIs.
+  - `inventory.fifo_costing` — the COGS report.
+- The admin layout renders the suite `AppSwitcher` (`@grit/shared-ui`) from
+  `buildAppNav(session)`.
+
+### Naming vs. the platform schema (@grit/database)
+
+This app keeps its own Prisma schema (Pascal-case tables, cuid ids) and does
+not point at `packages/database`. Equivalents mirror the platform contract's
+semantics: `StoreStock` ≈ `inventory_stocks`, `StockLot` ≈ `stock_lots`,
+`StockTransfer(-Item)` ≈ `stock_transfers(_items)`, `Store.type` ≈
+`locations.type`, `Tenant.tier/addons` ≈ `organizations.tier` /
+`organization_addons`. Divergences: ids are cuids (not uuids), lots/stocks
+are keyed per **variant** (the platform keys per product), transfer items
+carry a `unitCost` for FIFO cost carry-over, `Product.supplierName` is a
+denormalized name rather than a `suppliers` FK, and the local `event_outbox`
+stores `organization_id` as `TEXT`.
+
+### Barcode scanning
+
+`src/lib/useBarcodeScanner.ts` — client hook intercepting keyboard-wedge
+scanners (rapid keystrokes terminated by Enter; configurable min length and
+inter-key interval; human-speed typing is never captured). Wired into
+`/admin/products`: scanning a known variant SKU jumps to its product;
+an unknown SKU opens a quick "assign to variant" dialog
+(`PATCH /api/variants/[id]` now accepts `sku`). Lookup endpoint:
+`GET /api/variants/lookup?sku=...`.
+
+### New/changed environment variables
+
+| Env var | Purpose |
+| --- | --- |
+| `GRIT_EVENT_WEBHOOK_SECRET` | Shared HMAC secret for inbound/outbound suite webhooks (unset → event features inert) |
+| `GRIT_SUBSCRIBERS_INVENTORY_THRESHOLD_BREACHED` | Comma-separated subscriber URLs (e.g. taskboard webhook) |
+| `GRIT_SUBSCRIBERS_INVENTORY_TRANSFER_COMPLETED` | Comma-separated subscriber URLs (e.g. reports webhook) |
+| `GRIT_POS_URL` / `GRIT_INVENTORY_URL` / `GRIT_TASKBOARD_URL` / `GRIT_REPORTS_URL` | App-switcher base URLs (localhost defaults) |
+| `DATABASE_URL`, `AUTH_SECRET`, `CRON_SECRET` | Unchanged from M1 |
+
+### New endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET/POST /api/stores`, `PATCH/DELETE /api/stores/[id]` | Store management (SCALE) |
+| `GET/POST /api/transfers`, `POST /api/transfers/[id]/transition` | Transfer orders (SCALE) |
+| `GET /api/reports/cogs?from&to[&format=csv]` | FIFO COGS report (SCALE) |
+| `GET /api/variants/lookup?sku=` | Barcode SKU lookup |
+| `POST /api/events/grit` | Inbound HMAC event webhook (public route, HMAC-authed) |
+| `GET /api/cron/events-drain` | Outbox redelivery (CRON_SECRET) |
+
+### Build note
+
+The app builds with the **webpack** bundler (`next build --webpack`; see
+`package.json` scripts): the `@grit/*` packages ship TypeScript source using
+ESM-style `./file.js` relative imports, which are mapped to the `.ts`
+sources via `resolve.extensionAlias` in `next.config.ts` — Turbopack has no
+equivalent setting yet. `npm run test:pivot`
+(`scripts/grit-pivot-test.ts`) covers the multi-store/FIFO/transfer core
+against a real Postgres.

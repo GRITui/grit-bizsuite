@@ -160,7 +160,9 @@ CREATE INDEX IF NOT EXISTS transaction_items_transaction_id_idx
 CREATE TABLE IF NOT EXISTS event_outbox (
   event_id varchar(100) PRIMARY KEY,
   event_name varchar(100) NOT NULL,
-  organization_id uuid,
+  -- Opaque envelope org id (apps may use non-uuid tenant ids, e.g. cuids),
+  -- so this is intentionally text with no FK to organizations.
+  organization_id text,
   payload jsonb NOT NULL,
   created_at timestamp DEFAULT CURRENT_TIMESTAMP,
   delivered_at timestamp

@@ -25,7 +25,8 @@ export const orderInclude = {
     orderBy: { id: "asc" },
     include: {
       product: { select: { id: true, name: true } },
-      variant: { select: { id: true, name: true } },
+      // sku feeds transaction.completed event items (lib/events.ts).
+      variant: { select: { id: true, name: true, sku: true } },
       addOns: {
         include: { addOn: { select: { id: true, name: true } } },
       },

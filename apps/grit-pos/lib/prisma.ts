@@ -28,15 +28,35 @@ function createPrismaClient() {
 // hot-reloading in dev (and serverless/edge cold starts) don't spin up a
 // new PrismaClient — and a new connection pool — on every module reload.
 // https://www.prisma.io/docs/orm/more/help-and-troubleshooting/help-articles/nextjs-prisma-client-dev-practices
+//
+// Grit pivot: construction is LAZY (first property access) rather than at
+// module load, so `next build` succeeds with no DATABASE_URL set — importing
+// a route module during page-data collection must not throw. The missing-env
+// error now surfaces on the first actual query instead.
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+let cached: PrismaClient | undefined;
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function getClient(): PrismaClient {
+  if (cached) return cached;
+  cached = globalForPrisma.prisma ?? createPrismaClient();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = cached;
+  }
+  return cached;
 }
+
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getClient() as unknown as Record<PropertyKey, unknown>;
+    const value = client[prop];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(client)
+      : value;
+  },
+});
 
 export default prisma;

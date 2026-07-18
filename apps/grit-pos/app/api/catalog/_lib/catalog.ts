@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
+import { parseAttributes } from "@/lib/variantMatrix";
 
 // ---------------------------------------------------------------------------
 // Staff-facing, tenant-scoped catalog read. Only active products are
@@ -45,6 +46,10 @@ export interface CatalogVariantDTO {
   id: string;
   name: string;
   priceDelta: number;
+  /** Retail variant matrix: optional child SKU (unique per tenant). */
+  sku: string | null;
+  /** Retail variant matrix: attribute combination, e.g. {size:'L',color:'black'}. */
+  attributes: Record<string, string> | null;
 }
 
 export interface CatalogProductDTO {
@@ -75,6 +80,8 @@ export function serializeCatalog(categories: CategoryWithProducts[]): CatalogCat
         id: v.id,
         name: v.name,
         priceDelta: Number(v.priceDelta),
+        sku: v.sku ?? null,
+        attributes: parseAttributes(v.attributes),
       })),
       addOns: product.addOns.map((a) => ({
         id: a.id,

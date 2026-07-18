@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
@@ -13,9 +13,14 @@
     "test:concurrency": "tsx scripts/concurrency-test.ts",
     "test:tenant-isolation": "tsx scripts/tenant-isolation-test.ts",
     "test:background-jobs": "tsx scripts/background-jobs-test.ts",
-    "test:all": "npm run test:smoke && npm run test:concurrency && npm run test:tenant-isolation && npm run test:background-jobs"
+    "test:pivot": "tsx scripts/grit-pivot-test.ts",
+    "test:all": "npm run test:smoke && npm run test:concurrency && npm run test:tenant-isolation && npm run test:background-jobs && npm run test:pivot"
   },
   "dependencies": {
+    "@grit/database": "*",
+    "@grit/passport": "*",
+    "@grit/shared-events": "*",
+    "@grit/shared-ui": "*",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.8.0",
     "@prisma/client": "^7.8.0",

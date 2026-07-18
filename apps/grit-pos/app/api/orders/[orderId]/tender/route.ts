@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { Decimal } from "@prisma/client/runtime/client";
+import { publishTransactionCompleted } from "@/lib/events";
+import { checkVelocitySurge } from "@/lib/velocity";
 import { requireTenantId } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
@@ -97,6 +100,26 @@ export async function POST(
 
     const updated = await findOrderForTenant(tenantId, orderId);
     if (!updated) throw new HttpError(500, "Failed to reload order after tendering");
+
+    // Grit BizSuite events — published fire-and-forget AFTER the response
+    // (the tender DB transaction above has committed); event plumbing can
+    // never block or fail checkout.
+    if (isFullyPaid) {
+      after(async () => {
+        await publishTransactionCompleted({
+          tenantId,
+          orderId,
+          totalAmount: Number(subtotal),
+          lines: updated.lines.map((line) => ({
+            productId: line.productId,
+            variantSku: line.variant?.sku ?? null,
+            quantity: line.quantity,
+            unitPrice: Number(line.unitPrice),
+          })),
+        });
+        await checkVelocitySurge(tenantId);
+      });
+    }
 
     return NextResponse.json({
       order: serializeOrder(updated),

@@ -25,9 +25,15 @@ const STATUS_LABEL: Record<OrderDTO["status"], string> = {
 export default function OrderBuilder({
   initialOrder,
   catalog,
+  matrixEnabled = false,
+  offlineEnabled = false,
 }: {
   initialOrder: OrderDTO;
   catalog: CatalogCategoryDTO[];
+  /** "retail.variant_matrix" plugin trait — attribute selectors in the picker. */
+  matrixEnabled?: boolean;
+  /** pos.offline_mode entitlement — queue tenders captured while offline. */
+  offlineEnabled?: boolean;
 }) {
   const router = useRouter();
   const [order, setOrder] = useState(initialOrder);
@@ -38,6 +44,7 @@ export default function OrderBuilder({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastChangeDue, setLastChangeDue] = useState<number | null>(null);
+  const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
 
   const editable = order.status === "open";
   const activeCategory = useMemo(
@@ -114,10 +121,20 @@ export default function OrderBuilder({
     setPending(true);
     setError(null);
     try {
-      const { order: updated, changeDue } = await tenderOrder(order.id, input);
-      setOrder(updated);
-      setLastChangeDue(changeDue);
-      if (updated.status === "closed") {
+      const result = await tenderOrder(order.id, input, { queueOffline: offlineEnabled });
+      if (result.queued) {
+        // Offline capture: the tender sits in the IndexedDB queue and the
+        // sync loop (OfflineStatusChip) will replay it. Show queued state —
+        // the order stays visually unchanged until the sync lands.
+        setShowTender(false);
+        setQueuedNotice(
+          "Offline — payment queued. It will sync automatically when back online.",
+        );
+        return;
+      }
+      setOrder(result.order);
+      setLastChangeDue(result.changeDue);
+      if (result.order.status === "closed") {
         setShowTender(false);
       }
     } catch (err) {
@@ -212,6 +229,11 @@ export default function OrderBuilder({
       {/* Cart */}
       <div className="flex w-full flex-col gap-4 rounded-lg border border-zinc-200 p-4 md:w-80 dark:border-zinc-800">
         <h2 className="text-lg font-semibold">Cart</h2>
+        {queuedNotice && (
+          <p className="rounded bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+            {queuedNotice}
+          </p>
+        )}
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         <div className="max-h-[50vh] overflow-y-auto">
           <CartPanel
@@ -264,6 +286,7 @@ export default function OrderBuilder({
       {pickerProduct && (
         <ProductPicker
           product={pickerProduct}
+          matrixEnabled={matrixEnabled}
           submitting={pending}
           onCancel={() => setPickerProduct(null)}
           onConfirm={submitLine}

@@ -3,6 +3,12 @@
 import { useMemo, useState } from "react";
 import type { CatalogProductDTO } from "./types";
 import { formatMoney } from "./format";
+import {
+  attributeAxesFromVariants,
+  parseAttributes,
+  resolveVariantSelection,
+  type AttributeSelection,
+} from "@/lib/variantMatrix";
 
 export interface ProductPickerSelection {
   productId: string;
@@ -14,19 +20,40 @@ export interface ProductPickerSelection {
 export default function ProductPicker({
   product,
   submitting,
+  matrixEnabled = false,
   onCancel,
   onConfirm,
 }: {
   product: CatalogProductDTO;
   submitting: boolean;
+  /** "retail.variant_matrix" trait — shows attribute selectors when variants carry attributes. */
+  matrixEnabled?: boolean;
   onCancel: () => void;
   onConfirm: (selection: ProductPickerSelection) => void;
 }) {
-  const [variantId, setVariantId] = useState<string | null>(
+  // Retail variant matrix: when enabled and this product's variants carry
+  // attribute maps, pick by attribute axes and resolve to the child SKU.
+  const axes = useMemo(
+    () => (matrixEnabled ? attributeAxesFromVariants(product.variants) : {}),
+    [matrixEnabled, product],
+  );
+  const useMatrix = Object.keys(axes).length > 0;
+
+  const [attributeSelection, setAttributeSelection] = useState<AttributeSelection>(
+    () => parseAttributes(product.variants[0]?.attributes) ?? {},
+  );
+  const [plainVariantId, setPlainVariantId] = useState<string | null>(
     product.variants[0]?.id ?? null,
   );
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(1);
+
+  const matrixVariant = useMemo(
+    () => (useMatrix ? resolveVariantSelection(product.variants, attributeSelection) : null),
+    [useMatrix, product, attributeSelection],
+  );
+  const variantId = useMatrix ? (matrixVariant?.id ?? null) : plainVariantId;
+  const unresolvedCombination = useMatrix && matrixVariant === null;
 
   const unitPrice = useMemo(() => {
     const variant = product.variants.find((v) => v.id === variantId);
@@ -50,7 +77,40 @@ export default function ProductPicker({
           )}
         </div>
 
-        {product.variants.length > 0 && (
+        {useMatrix && (
+          <div className="flex flex-col gap-3">
+            {Object.entries(axes).map(([axis, values]) => (
+              <fieldset key={axis} className="flex flex-col gap-1">
+                <legend className="mb-1 text-sm font-medium capitalize">{axis}</legend>
+                <div className="flex flex-wrap gap-2">
+                  {values.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() =>
+                        setAttributeSelection((prev) => ({ ...prev, [axis]: value }))
+                      }
+                      className={`rounded border px-3 py-1.5 text-sm font-medium ${
+                        attributeSelection[axis] === value
+                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-zinc-900"
+                          : "border-zinc-300 dark:border-zinc-700"
+                      }`}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {matrixVariant
+                ? `SKU: ${matrixVariant.sku ?? matrixVariant.name}`
+                : "This combination isn't available."}
+            </p>
+          </div>
+        )}
+
+        {!useMatrix && product.variants.length > 0 && (
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1 text-sm font-medium">Size / variant</legend>
             {product.variants.map((v) => (
@@ -62,8 +122,8 @@ export default function ProductPicker({
                   <input
                     type="radio"
                     name="variant"
-                    checked={variantId === v.id}
-                    onChange={() => setVariantId(v.id)}
+                    checked={plainVariantId === v.id}
+                    onChange={() => setPlainVariantId(v.id)}
                   />
                   {v.name}
                 </span>
@@ -141,7 +201,7 @@ export default function ProductPicker({
           </button>
           <button
             type="button"
-            disabled={submitting}
+            disabled={submitting || unresolvedCombination}
             onClick={() =>
               onConfirm({ productId: product.id, variantId, addOnIds, quantity })
             }

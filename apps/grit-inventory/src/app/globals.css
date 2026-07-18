@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* @grit/shared-ui ships Tailwind-classed TSX source; make sure its utility
+   classes are generated. */
+@source "../../../../packages/shared-ui/src";
 
 :root {
   --background: #ffffff;

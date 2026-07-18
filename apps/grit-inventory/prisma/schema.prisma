@@ -60,30 +60,59 @@ enum StockMovementReason {
   restock
   return
   correction
+  // Grit BizSuite pivot additions (additive — see migration
+  // 20260718100000_grit_inventory_pivot):
+  transfer_out
+  transfer_in
+  pos_sale
+}
+
+/// Grit pivot: inter-store transfer order lifecycle. Mirrors the canonical
+/// platform values in @grit/database `stock_transfers.status`.
+enum StockTransferStatus {
+  draft
+  in_transit
+  received
+  cancelled
 }
 
 model Tenant {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  /// Grit pivot: commercial tier ("LITE" | "GROWTH" | "SCALE") — mirrors
+  /// @grit/database organizations.tier. Kept as String (not enum) to match
+  /// the platform's varchar+CHECK convention for extensibility.
+  tier      String   @default("GROWTH")
+  /// Grit pivot: addon flags (e.g. "custom_reporting") — mirrors
+  /// @grit/database organization_addons.
+  addons    String[] @default([])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  stores   Store[]
-  users    User[]
-  products Product[]
-  variants Variant[]
-  orders   Order[]
-  bundles  Bundle[]
+  stores         Store[]
+  users          User[]
+  products       Product[]
+  variants       Variant[]
+  orders         Order[]
+  bundles        Bundle[]
+  storeStocks    StoreStock[]
+  stockTransfers StockTransfer[]
+  stockLots      StockLot[]
 }
 
-/// Single row for M1. Structurally present so M2 multi-store doesn't require
-/// a schema break — see handoff Section 4.1.
+/// Grit pivot (M2 multi-location, executed): tenants may now hold multiple
+/// stores. Exactly one store per tenant should have `isDefault = true`; new
+/// stores must be created with `isDefault: false`.
 model Store {
   id        String   @id @default(cuid())
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id])
   name      String
+  /// Mirrors @grit/database locations.type:
+  /// 'retail' | 'warehouse' | 'service_hub' | 'kitchen'. Kept as String
+  /// (varchar) to match the platform's varchar+CHECK convention.
+  type      String   @default("retail") @db.VarChar(32)
   isDefault Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -92,6 +121,10 @@ model Store {
   orders         Order[]
   deliveries     Delivery[]
   stockMovements StockMovement[]
+  storeStocks    StoreStock[]
+  stockLots      StockLot[]
+  transfersFrom  StockTransfer[] @relation("TransferFromStore")
+  transfersTo    StockTransfer[] @relation("TransferToStore")
 
   @@index([tenantId])
 }
@@ -115,22 +148,31 @@ model User {
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
-  name        String
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  description  String?
+  /// Grit pivot: preferred supplier, published on
+  /// `inventory.threshold_breached` events so Taskboard restock cards are
+  /// actionable. (The platform schema models a suppliers table +
+  /// products.supplier_id; this app keeps a denormalized name — divergence
+  /// documented in README.)
+  supplierName String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   variants Variant[]
 
   @@index([tenantId])
 }
 
-/// quantityOnHand lives directly on Variant for M1 (single store). M2 moves
-/// it off Variant onto a per-store StoreStock join table — see handoff 4.1.
+/// Grit pivot (M2 multi-location, executed): per-store quantities live on
+/// `StoreStock`; `quantityOnHand` here is a MAINTAINED AGGREGATE (sum of the
+/// tenant's StoreStock rows for this variant), updated in the same
+/// transaction as every store-level movement so existing single-store
+/// screens/queries keep working unchanged.
 model Variant {
   id               String   @id @default(cuid())
   tenantId         String
@@ -140,6 +182,9 @@ model Variant {
   sku              String
   name             String
   price            Decimal  @db.Decimal(12, 2)
+  /// Grit pivot: default acquisition cost used when a restock does not
+  /// specify one, and the FIFO fallback cost when no lots remain.
+  unitCost         Decimal? @db.Decimal(12, 2)
   quantityOnHand   Int      @default(0)
   reorderThreshold Int      @default(0)
   isActive         Boolean  @default(true)
@@ -151,9 +196,149 @@ model Variant {
   bundleComponents  BundleComponent[]
   forecastSnapshots ForecastSnapshot[]
   deadStockFlags    DeadStockFlag[]
+  storeStocks       StoreStock[]
+  stockLots         StockLot[]
+  transferItems     StockTransferItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, productId])
+}
+
+// ---------------------------------------------------------------------------
+// Grit BizSuite pivot — multi-location stock, transfer orders, FIFO costing,
+// event ingestion. All additive; see
+// prisma/migrations/20260718100000_grit_inventory_pivot/migration.sql.
+// Field/table naming mirrors @grit/database (the canonical platform
+// contract): StoreStock ≈ inventory_stocks, StockLot ≈ stock_lots,
+// StockTransfer(-Item) ≈ stock_transfers(_items). Divergences are documented
+// in README.md.
+// ---------------------------------------------------------------------------
+
+/// Per-store stock level for a variant — the authoritative quantity record
+/// since the multi-location pivot (Variant.quantityOnHand is the maintained
+/// tenant-wide aggregate). Mirrors @grit/database inventory_stocks.
+model StoreStock {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  storeId          String
+  store            Store    @relation(fields: [storeId], references: [id])
+  variantId        String
+  variant          Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantityOnHand   Int      @default(0)
+  reorderThreshold Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, storeId, variantId])
+  @@index([tenantId, variantId])
+  @@index([storeId])
+}
+
+/// FIFO cost layer: each restock receipt creates a lot; consumption drains
+/// `quantityRemaining` oldest-first by `receivedAt`. Mirrors @grit/database
+/// stock_lots (scoped per store + variant here).
+model StockLot {
+  id                String   @id @default(cuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  storeId           String
+  store             Store    @relation(fields: [storeId], references: [id])
+  variantId         String
+  variant           Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  receivedAt        DateTime @default(now())
+  quantityReceived  Int
+  quantityRemaining Int
+  unitCost          Decimal  @db.Decimal(12, 2)
+
+  consumptions StockLotConsumption[]
+
+  @@index([tenantId, storeId, variantId, receivedAt])
+}
+
+/// Audit of which lots a consuming StockMovement drained (and at what unit
+/// cost) — the source records for the FIFO COGS report. `lotId` is null for
+/// fallback consumption (no open lots; costed at Variant.unitCost).
+model StockLotConsumption {
+  id         String        @id @default(cuid())
+  tenantId   String
+  movementId String
+  movement   StockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  lotId      String?
+  lot        StockLot?     @relation(fields: [lotId], references: [id])
+  variantId  String
+  storeId    String
+  quantity   Int
+  unitCost   Decimal       @db.Decimal(12, 2)
+  createdAt  DateTime      @default(now())
+
+  @@index([tenantId, variantId, createdAt])
+  @@index([movementId])
+  @@index([lotId])
+}
+
+/// Inter-store transfer order. Status flow:
+/// draft -> in_transit (source decremented, reason `transfer_out`)
+///       -> received   (destination incremented, reason `transfer_in`)
+/// draft|in_transit -> cancelled (in_transit cancellation restores source).
+model StockTransfer {
+  id           String              @id @default(cuid())
+  tenantId     String
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  fromStoreId  String
+  fromStore    Store               @relation("TransferFromStore", fields: [fromStoreId], references: [id])
+  toStoreId    String
+  toStore      Store               @relation("TransferToStore", fields: [toStoreId], references: [id])
+  status       StockTransferStatus @default(draft)
+  note         String?
+  createdById  String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  dispatchedAt DateTime?
+  receivedAt   DateTime?
+  cancelledAt  DateTime?
+
+  items StockTransferItem[]
+
+  @@index([tenantId, status])
+}
+
+model StockTransferItem {
+  id         String        @id @default(cuid())
+  transferId String
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    Variant       @relation(fields: [variantId], references: [id])
+  quantity   Int
+  /// FIFO cost per unit captured when the source store was drained
+  /// (transfer_out); carried to the destination's receipt lot.
+  unitCost   Decimal?      @db.Decimal(12, 2)
+
+  @@index([transferId])
+}
+
+/// Inbound webhook idempotency: one row per processed @grit/shared-events
+/// `event_id`. Insert-or-conflict is the dedupe gate.
+model ProcessedEvent {
+  id         String   @id @default(cuid())
+  eventId    String   @unique
+  eventName  String
+  receivedAt DateTime @default(now())
+}
+
+/// Durable event outbox for @grit/shared-events publishes, drained by
+/// /api/cron/events-drain. Mirrors @grit/database event_outbox (divergence:
+/// organization_id is TEXT here because this app's tenant ids are cuids,
+/// not uuids — see README).
+model EventOutbox {
+  eventId        String    @id @map("event_id") @db.VarChar(100)
+  eventName      String    @map("event_name") @db.VarChar(100)
+  organizationId String?   @map("organization_id")
+  payload        Json
+  createdAt      DateTime? @default(now()) @map("created_at")
+  deliveredAt    DateTime? @map("delivered_at")
+
+  @@map("event_outbox")
 }
 
 /// Append-only audit trail. Every stock change (manual edit, order
@@ -174,6 +359,8 @@ model StockMovement {
   note        String?
   createdById String?
   createdAt   DateTime            @default(now())
+
+  lotConsumptions StockLotConsumption[]
 
   @@index([tenantId, variantId])
   @@index([storeId])

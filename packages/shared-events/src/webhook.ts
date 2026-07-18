@@ -40,6 +40,7 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 }
 
 export interface SignedWebhookHeaders {
+  [header: string]: string;
   "content-type": "application/json";
   "x-grit-event": string;
   "x-grit-timestamp": string;

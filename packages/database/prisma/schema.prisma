@@ -292,7 +292,7 @@ model Task {
 model EventOutbox {
   eventId        String    @id @map("event_id") @db.VarChar(100)
   eventName      String    @map("event_name") @db.VarChar(100)
-  organizationId String?   @map("organization_id") @db.Uuid
+  organizationId String?   @map("organization_id")
   payload        Json
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
   deliveredAt    DateTime? @map("delivered_at") @db.Timestamp(6)

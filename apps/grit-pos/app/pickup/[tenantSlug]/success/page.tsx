@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { resolveTenantBySlug } from "@/app/api/pickup/_resolve";
 import { PickupConfirmation } from "@/components/pickup/PickupConfirmation";
 
 // Stripe Checkout `success_url` target: /pickup/{tenantSlug}/success?orderId=...
@@ -17,10 +17,8 @@ export default async function PickupSuccessPage({
   const { tenantSlug } = await params;
   const { orderId } = await searchParams;
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true },
-  });
+  // Gated resolver: also 404s when "hospitality.pickup_links" is disabled.
+  const tenant = await resolveTenantBySlug(tenantSlug);
   if (!tenant || !orderId) {
     notFound();
   }

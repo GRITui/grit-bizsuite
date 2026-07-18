@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
 
-const PUBLIC_API_PREFIXES = ["/api/auth/login", "/api/cron/"];
+// /api/events/grit is the inbound @grit/shared-events webhook: it carries no
+// session cookie and authenticates via HMAC signature inside the route
+// handler, so it is excluded from the session gate here. Cron routes are
+// likewise self-guarded (CRON_SECRET bearer token).
+const PUBLIC_API_PREFIXES = ["/api/auth/login", "/api/cron/", "/api/events/grit"];
 
 function isPublicApiRoute(pathname: string) {
   return PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix));

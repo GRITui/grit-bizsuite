@@ -1,5 +1,6 @@
+import { hasFeatureAccess } from "@grit/passport";
 import { db } from "@/lib/db";
-import { requireSession } from "@/lib/session";
+import { requireGritContext } from "@/lib/passport";
 import { Card, PageHeader } from "@/components/ui";
 import { daysAgo, formatCurrency, formatDate } from "@/lib/format";
 
@@ -16,8 +17,9 @@ function ExportLink({ href }: { href: string }) {
 }
 
 export default async function ReportsPage() {
-  const session = await requireSession();
-  const { tenantId } = session;
+  const ctx = await requireGritContext();
+  const { tenantId } = ctx.local;
+  const fifoCosting = hasFeatureAccess(ctx.grit, "inventory.fifo_costing");
   const since = daysAgo(WINDOW_DAYS);
 
   const [recentOrders, variants, forecastSnapshots, deadStockFlags] = await Promise.all([
@@ -57,7 +59,23 @@ export default async function ReportsPage() {
 
   return (
     <div>
-      <PageHeader title="Reports" description="Sales, inventory, restock suggestions, and dead-stock." />
+      <PageHeader
+        title="Reports"
+        description="Sales, inventory, restock suggestions, and dead-stock."
+        action={
+          fifoCosting ? (
+            <div className="flex items-center gap-3">
+              <ExportLink href="/api/reports/cogs?format=csv" />
+              <a
+                href="/api/reports/cogs"
+                className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+              >
+                FIFO COGS (JSON)
+              </a>
+            </div>
+          ) : undefined
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

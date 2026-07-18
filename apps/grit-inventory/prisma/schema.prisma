@@ -99,6 +99,12 @@ model Tenant {
   storeStocks    StoreStock[]
   stockTransfers StockTransfer[]
   stockLots      StockLot[]
+  itemGroups       ItemGroup[]
+  itemSubGroups    ItemSubGroup[]
+  variantLocations VariantLocation[]
+  pickTasks        PickTask[]
+  packTasks        PackTask[]
+  parcelLabels     ParcelLabel[]
 }
 
 /// Grit pivot (M2 multi-location, executed): tenants may now hold multiple
@@ -125,6 +131,8 @@ model Store {
   stockLots      StockLot[]
   transfersFrom  StockTransfer[] @relation("TransferFromStore")
   transfersTo    StockTransfer[] @relation("TransferToStore")
+  variantLocations VariantLocation[]
+  pickTasks        PickTask[]
 
   @@index([tenantId])
 }
@@ -142,7 +150,11 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ordersCreated Order[] @relation("OrderCreatedBy")
+  ordersCreated     Order[]           @relation("OrderCreatedBy")
+  /// Grit BizSuite pivot: picking module — staff assigned to a pick task.
+  pickTasksAssigned PickTask[]        @relation("PickTaskAssignedTo")
+  /// Grit BizSuite pivot: parcel labels printed by this staff member.
+  parcelLabelsPrinted ParcelLabel[]   @relation("ParcelLabelCreatedBy")
 
   @@index([tenantId])
 }
@@ -163,9 +175,15 @@ model Product {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Grit BizSuite pivot: item group/sub-group categorization. Nullable —
+  /// existing products stay uncategorized until assigned.
+  subGroupId String?
+  subGroup   ItemSubGroup? @relation(fields: [subGroupId], references: [id])
+
   variants Variant[]
 
   @@index([tenantId])
+  @@index([subGroupId])
 }
 
 /// Grit pivot (M2 multi-location, executed): per-store quantities live on
@@ -199,6 +217,11 @@ model Variant {
   storeStocks       StoreStock[]
   stockLots         StockLot[]
   transferItems     StockTransferItem[]
+  /// Grit BizSuite pivot: planogram slot(s) — where this variant physically
+  /// lives per store. Zero or more; typically one marked isPrimary per store.
+  locations         VariantLocation[]
+  pickTaskItems     PickTaskItem[]
+  packTaskItems     PackTaskItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, productId])
@@ -387,6 +410,15 @@ model Order {
   payments Payment[]
   delivery Delivery?
 
+  /// Grit BizSuite pivot: picking/packing/label workflow, layered onto the
+  /// existing pending→paid→fulfilling→fulfilled state machine (lib/orders.ts
+  /// is unchanged — these are optional operational sub-steps engaged only
+  /// when a PickTask is explicitly created for the order; see lib/picking.ts
+  /// and lib/packing.ts).
+  pickTask     PickTask?
+  packTask     PackTask?
+  parcelLabels ParcelLabel[]
+
   @@unique([tenantId, orderNumber])
   @@index([tenantId, status])
   @@index([storeId])
@@ -525,4 +557,187 @@ model BundleComponent {
   qtyRequired        Int
 
   @@index([bundleId])
+}
+
+// ---------------------------------------------------------------------------
+// Grit BizSuite pivot: warehouse operations — item groups/sub-groups, item
+// location/planogram management, picking + packing (layered on the existing
+// Order state machine, additive only — see lib/orders.ts's unchanged
+// pending→paid→fulfilling→fulfilled machine), and parcel label printing.
+// ---------------------------------------------------------------------------
+
+enum PickTaskStatus {
+  pending
+  in_progress
+  complete
+}
+
+enum PackTaskStatus {
+  pending
+  in_progress
+  complete
+}
+
+/// Top-level product categorization (e.g. "Apparel", "Industrial Supplies").
+model ItemGroup {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subGroups ItemSubGroup[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// Second-level categorization within a group (e.g. "T-Shirts" under
+/// "Apparel"). Products reference a sub-group directly; the parent group is
+/// reached via subGroup.group.
+model ItemSubGroup {
+  id        String    @id @default(cuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  groupId   String
+  group     ItemGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  products Product[]
+
+  @@unique([groupId, name])
+  @@index([tenantId])
+}
+
+/// Planogram slot: where a variant physically lives within a store (aisle /
+/// shelf / bin). A variant may have more than one row per store (forward-pick
+/// + bulk-reserve); `isPrimary` marks the one picking should default to. Not
+/// DB-uniqueness-enforced (Prisma has no partial unique index) — application
+/// code treats the first isPrimary=true row per (storeId, variantId) as
+/// canonical and the API rejects creating a second primary explicitly.
+model VariantLocation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  /// Human-entered slot code, e.g. "A1-03-02" (aisle-shelf-bin). Free-form —
+  /// stores may use whatever convention fits their layout.
+  code      String
+  zone      String?
+  isPrimary Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, storeId])
+  @@index([variantId])
+}
+
+/// One pick task per order (1:1) — the scanner-driven "go gather these items"
+/// step. Created explicitly by staff (not automatic) once an order enters
+/// `fulfilling`; its existence is what makes picking/packing apply to that
+/// order at all (an order that never gets a PickTask uses the plain
+/// fulfilling→fulfilled flow exactly as before this pivot).
+model PickTask {
+  id           String         @id @default(cuid())
+  tenantId     String
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  orderId      String         @unique
+  order        Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeId      String?
+  store        Store?         @relation(fields: [storeId], references: [id])
+  status       PickTaskStatus @default(pending)
+  assignedToId String?
+  assignedTo   User?          @relation("PickTaskAssignedTo", fields: [assignedToId], references: [id])
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  items PickTaskItem[]
+
+  @@index([tenantId, status])
+}
+
+model PickTaskItem {
+  id                String    @id @default(cuid())
+  pickTaskId        String
+  pickTask          PickTask  @relation(fields: [pickTaskId], references: [id], onDelete: Cascade)
+  orderLineId       String
+  variantId         String
+  variant           Variant   @relation(fields: [variantId], references: [id])
+  /// Snapshot of the variant's primary VariantLocation.code at task-creation
+  /// time — stays stable for the picker even if the location is edited later.
+  locationCode      String?
+  quantityRequired  Int
+  quantityPicked    Int       @default(0)
+  scannedAt         DateTime?
+
+  @@index([pickTaskId])
+  @@index([orderLineId])
+}
+
+/// One pack task per order (1:1), created once its PickTask completes — a
+/// second scan pass that re-verifies contents before sealing/labeling.
+model PackTask {
+  id          String         @id @default(cuid())
+  tenantId    String
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  orderId     String         @unique
+  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status      PackTaskStatus @default(pending)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  items PackTaskItem[]
+
+  @@index([tenantId, status])
+}
+
+model PackTaskItem {
+  id               String    @id @default(cuid())
+  packTaskId       String
+  packTask         PackTask  @relation(fields: [packTaskId], references: [id], onDelete: Cascade)
+  orderLineId      String
+  variantId        String
+  variant          Variant   @relation(fields: [variantId], references: [id])
+  quantityRequired Int
+  quantityPacked   Int       @default(0)
+  scannedAt        DateTime?
+
+  @@index([packTaskId])
+  @@index([orderLineId])
+}
+
+/// Internal parcel/shipping label — no real carrier integration (no
+/// FedEx/UPS API in scope); trackingRef is a self-generated internal
+/// reference printed as a barcode on an HTML label sized for label printers.
+model ParcelLabel {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  orderId      String
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deliveryId   String?
+  trackingRef  String    @unique
+  toName       String?
+  toAddress    String?
+  itemCount    Int
+  weightKg     Decimal?  @db.Decimal(8, 3)
+  createdById  String?
+  createdBy    User?     @relation("ParcelLabelCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime  @default(now())
+  printedAt    DateTime?
+
+  @@index([tenantId, orderId])
 }

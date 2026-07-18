@@ -150,6 +150,9 @@ additive — migration
 - API: `POST /api/transfers` (create draft), `GET /api/transfers`,
   `POST /api/transfers/[id]/transition`. Admin UI: `/admin/transfers`.
 - Reaching `received` publishes `inventory.transfer_completed`.
+- The product detail page (`/admin/products/[id]`) now shows a read-only
+  stock-movement ledger (last 50 `StockMovement` rows across the product's
+  variants, with reason/store/delta/when) below the Variants table.
 
 ### FIFO costing
 
@@ -234,6 +237,35 @@ inter-key interval; human-speed typing is never captured). Wired into
 an unknown SKU opens a quick "assign to variant" dialog
 (`PATCH /api/variants/[id]` now accepts `sku`). Lookup endpoint:
 `GET /api/variants/lookup?sku=...`.
+
+### Warehouse operations schema (picking, packing, locations, labels, groups)
+
+Additive schema in `prisma/migrations/20260718165651_grit_wms_epic/` lays the
+foundation for a warehouse-ops epic layered on top of everything above:
+
+- **`ItemGroup` / `ItemSubGroup`** — two-level product categorization.
+  `Product.subGroupId` is nullable; existing products stay uncategorized
+  until assigned.
+- **`VariantLocation`** — planogram slot(s) per `(store, variant)`: a
+  free-form `code` (e.g. `"A1-03-02"`), optional `zone`, and an `isPrimary`
+  flag. Not DB-uniqueness-enforced (Prisma has no partial unique index) —
+  app code treats the first `isPrimary=true` row as canonical.
+- **`PickTask` / `PickTaskItem`** and **`PackTask` / `PackTaskItem`** —
+  scanner-driven fulfillment sub-steps, **explicitly opt-in per order**: the
+  existing `pending → paid → fulfilling → fulfilled` state machine in
+  `lib/orders.ts` is completely unchanged. An order that never gets a
+  `PickTask` created for it behaves exactly as before this addition; one
+  that does gets a pick list (scan each line to fulfill `quantityRequired`),
+  then a pack task (a second scan pass, catches mis-picks), then a
+  `ParcelLabel` can be generated.
+- **`ParcelLabel`** — an internal packing-slip-style label with a
+  self-generated `trackingRef` printed as a barcode. No real carrier
+  integration (no FedEx/UPS API) — MVP scope is an HTML label sized for
+  label printers.
+
+Schema only in this commit; the API routes, admin UI, and picking/packing
+screens are tracked separately (see the sections each module adds below as
+they land).
 
 ### New/changed environment variables
 

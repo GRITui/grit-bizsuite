@@ -9,16 +9,18 @@ import {
   PaymentStatus,
   TenderType,
 } from "@/app/generated/prisma/enums";
-import { publishTransactionCompleted, type CompletedOrderLine } from "@/lib/events";
+import { eventItemSku, publishTransactionCompleted, type CompletedOrderLine } from "@/lib/events";
 import { checkVelocitySurge } from "@/lib/velocity";
 import { errorResponse, HttpError, readJsonBody } from "../_lib/http";
 import {
+  computeOrderDiscount,
   findOrderForTenant,
   orderInclude,
   serializeOrder,
   type OrderWithRelations,
 } from "../_lib/queries";
 import { computeLineTotal, computeUnitPrice, parseMoneyInput, sumDecimals } from "../_lib/pricing";
+import { evaluatePromotions, type PromotionCartLine } from "@/lib/promotions";
 
 // POST /api/orders/offline-sync
 //
@@ -144,7 +146,12 @@ async function applyTenderOp(
   // both could read the same "not yet fully paid" snapshot and both flip the
   // order to `closed`, double-booking the payment and firing
   // `transaction.completed` twice for one order.
-  let outcome: { isFullyPaid: boolean; subtotal: ReturnType<typeof sumDecimals>; order: OrderWithRelations };
+  let outcome: {
+    isFullyPaid: boolean;
+    subtotal: ReturnType<typeof sumDecimals>;
+    amountDue: ReturnType<typeof sumDecimals>;
+    order: OrderWithRelations;
+  };
   try {
     outcome = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
@@ -165,7 +172,14 @@ async function applyTenderOp(
       const priorPaid = sumDecimals(
         order.payments.filter((p) => p.status === PaymentStatus.succeeded).map((p) => p.amount),
       );
-      const isFullyPaid = priorPaid.plus(amount).greaterThanOrEqualTo(subtotal);
+      // "Fully paid" must be judged against subtotal minus the current
+      // promotion discount, not the raw subtotal — same reasoning as
+      // tender/route.ts's computeOrderDiscount call. Without this, a synced
+      // tender on a discounted order can never close (stuck in `tendered`)
+      // and the outbound event below would report the undiscounted total.
+      const { totalDiscount } = await computeOrderDiscount(tenantId, order.lines);
+      const amountDue = subtotal.minus(totalDiscount);
+      const isFullyPaid = priorPaid.plus(amount).greaterThanOrEqualTo(amountDue);
 
       await tx.payment.create({
         data: {
@@ -181,7 +195,7 @@ async function applyTenderOp(
         data: { status: isFullyPaid ? OrderStatus.closed : OrderStatus.tendered },
       });
 
-      return { isFullyPaid, subtotal, order };
+      return { isFullyPaid, subtotal, amountDue, order };
     });
   } catch (err) {
     if (err instanceof HttpError) return rejected(externalRef, err.message);
@@ -194,7 +208,7 @@ async function applyTenderOp(
   if (outcome.isFullyPaid) {
     completed.push({
       orderId: outcome.order.id,
-      totalAmount: Number(outcome.subtotal),
+      totalAmount: Number(outcome.amountDue),
       lines: collectEventLines(outcome.order),
     });
   }
@@ -269,7 +283,21 @@ async function applyQuickSaleOp(
   }
 
   const subtotal = sumDecimals(preparedLines.map((l) => l.lineTotal));
-  const isFullyPaid = amount.greaterThanOrEqualTo(subtotal);
+  // Same discount-aware "fully paid" check as applyTenderOp above — a quick
+  // sale is a brand-new order, so there's no prior Payment history to read
+  // discounts off of, but the tenant's active promotions still apply.
+  const quickSaleCartLines: PromotionCartLine[] = preparedLines.map((l) => ({
+    sku: eventItemSku({ productId: l.productId, variantSku: l.variantSku }),
+    quantity: l.quantity,
+    unitPrice: Number(l.unitPrice),
+  }));
+  const activeRules =
+    preparedLines.length > 0
+      ? await prisma.promotionRule.findMany({ where: { tenantId, isActive: true } })
+      : [];
+  const { totalDiscount: quickSaleDiscount } = evaluatePromotions(quickSaleCartLines, activeRules);
+  const amountDue = subtotal.minus(quickSaleDiscount);
+  const isFullyPaid = amount.greaterThanOrEqualTo(amountDue);
 
   let created: { id: string };
   try {
@@ -309,7 +337,7 @@ async function applyQuickSaleOp(
   if (isFullyPaid) {
     completed.push({
       orderId: created.id,
-      totalAmount: Number(subtotal),
+      totalAmount: Number(amountDue),
       lines: preparedLines.map((line) => ({
         productId: line.productId,
         variantSku: line.variantSku,

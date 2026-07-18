@@ -116,8 +116,8 @@ POS transaction volume ÷ taskboard checklist completion speed over
 
 - Reuses the revenue endpoint's `count` field for transaction volume (same
   `GRIT_POS_URL` call, same "may not exist yet" tolerance).
-- `GET {GRIT_TASKBOARD_URL}/api/ops-tasks?status=done&since=<from>` — does
-  not exist in `apps/grit-taskboard/api` as of this writing, so this codes
+- `GET {GRIT_TASKBOARD_URL}/api/ops-tasks?status=done&since=<from>&organization_id=<session.organizationId>` —
+  does not exist in `apps/grit-taskboard/api` as of this writing, so this codes
   against the documented shape: an array of task objects with
   `created_at`/`completed_at` ISO timestamps (matching the `task.completed`
   event's data shape in `packages/shared-events/src/contracts.ts`). 404/

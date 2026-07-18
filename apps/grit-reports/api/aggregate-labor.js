@@ -11,6 +11,7 @@
  *     (same "may not exist yet" tolerance as aggregate-margins.js: 404/
  *     network error -> upstream.pos = "missing", zeroed count).
  *   - GRIT_TASKBOARD_URL + GET {GRIT_TASKBOARD_URL}/api/ops-tasks?status=done&since=<from>
+ *     &organization_id=<session.organizationId>
  *     This endpoint does not exist in apps/grit-taskboard/api yet (checked
  *     at implementation time), so this codes against the documented shape:
  *     an array of task objects with `created_at`/`completed_at` ISO
@@ -63,12 +64,22 @@ export default async function handler(request) {
   const [posResult, taskResult] = await Promise.all([
     fetchUpstream(
       process.env.GRIT_POS_URL,
-      `/api/reports/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      // grit-pos's bearer-token auth path has no session to scope itself
+      // with — it requires `organization_id` explicitly (see route.ts's
+      // resolveTenantId). Without it every call 401s and degrades to the
+      // "error" marker instead of ever returning data. See
+      // aggregate-margins.js for the same fix with fuller rationale.
+      `/api/reports/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}` +
+        `&organization_id=${encodeURIComponent(session.organizationId)}`,
       { serviceToken },
     ),
     fetchUpstream(
       process.env.GRIT_TASKBOARD_URL,
-      `/api/ops-tasks?status=done&since=${encodeURIComponent(from)}`,
+      // grit-taskboard's bearer-token auth path has no session to scope
+      // itself with — it requires `organization_id` explicitly, same
+      // convention as the grit-pos revenue call above.
+      `/api/ops-tasks?status=done&since=${encodeURIComponent(from)}` +
+        `&organization_id=${encodeURIComponent(session.organizationId)}`,
       { serviceToken },
     ),
   ]);

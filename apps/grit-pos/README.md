@@ -84,7 +84,10 @@ event delivery.
   from the staff tender route, the Stripe webhook confirm, and offline sync.
   Notes: `location_id` is the **tenant id** (no Location model yet);
   `tax_amount` is always `0` (no tax model yet); item `sku` is the variant's
-  child SKU or the fallback `PRD-<productId>`.
+  child SKU or the fallback `PRD-<productId>`. Known limitation: fallback SKUs
+  are POS-internal ids, so grit-inventory will skip them as unknown unless the
+  same SKU exists there — cross-app stock decrement requires the catalogs to
+  share real child SKUs (assign variant SKUs in both apps).
 - `pos.velocity_surge` — after each completed transaction,
   `lib/velocity.ts` counts the tenant's closed orders in the trailing
   `GRIT_SURGE_WINDOW_MIN` (default 10) minutes; at ≥ `GRIT_SURGE_THRESHOLD`
@@ -123,9 +126,17 @@ Optional Grit BizSuite integration (all inert when unset — see
 `GRIT_SUBSCRIBERS_TRANSACTION_COMPLETED`,
 `GRIT_SUBSCRIBERS_POS_VELOCITY_SURGE`, `CRON_SECRET`,
 `GRIT_SURGE_WINDOW_MIN`, `GRIT_SURGE_THRESHOLD`, `GRIT_POS_URL`,
-`GRIT_INVENTORY_URL`, `GRIT_TASKBOARD_URL`, `GRIT_REPORTS_URL`.
+`GRIT_INVENTORY_URL`, `GRIT_TASKBOARD_URL`, `GRIT_REPORTS_URL`,
+`GRIT_SERVICE_TOKEN`.
 (`GRIT_SESSION_SECRET` becomes relevant only at the full-SSO step; the
 passport bridge doesn't sign tokens.)
+
+`GRIT_SERVICE_TOKEN` gates the service-to-service bearer auth path on
+`GET /api/reports/revenue` (below) — grit-reports' margin aggregator calls
+that endpoint with `Authorization: Bearer $GRIT_SERVICE_TOKEN` since it has
+no staff session of its own. Leaving it unset disables that path entirely
+(any bearer header gets a flat 401); it never falls back to treating an
+unset/mismatched token as authenticated.
 
 ## New/changed endpoints
 
@@ -133,6 +144,7 @@ passport bridge doesn't sign tokens.)
 | --- | --- |
 | `POST /api/orders/offline-sync` | Idempotent offline-queue replay (tender + quick_sale ops), auth required |
 | `GET/POST /api/cron/events-drain` | Outbox retry drain, `Authorization: Bearer $CRON_SECRET` |
+| `GET /api/reports/revenue?from&to` | Revenue for `grit-reports`' margin aggregator (`{from,to,revenue,tax:0,count,daily:[{date,revenue,count}]}`); staff session **or** `Authorization: Bearer $GRIT_SERVICE_TOKEN` + `?organization_id=<tenant id>` |
 | `GET /api/catalog` | Now includes `sku` + `attributes` per variant |
 | `/t/**`, `/api/public/table/**` | 404 when `hospitality.tables` trait is off |
 | `/pickup/**`, `/api/pickup/**` | 404 when `hospitality.pickup_links` trait is off |
@@ -153,9 +165,5 @@ mirroring `packages/database/migrations/0002_platform_extensions.sql`.
   webpack resolves via `experimental.extensionAlias` (see `next.config.ts`).
   Turbopack (the Next 16 default) has no equivalent and cannot resolve those
   imports; revisit if the shared packages move to extensionless imports.
-- `types/grit-shared-events-augment.d.ts` adds an index signature to
-  `SignedWebhookHeaders` via module augmentation so the package's `fetch`
-  call typechecks under this app's DOM lib — a type-level workaround, no
-  package modification.
 - `lib/prisma.ts` constructs the Prisma client lazily (first access), so
   `next build` succeeds with no env vars set.

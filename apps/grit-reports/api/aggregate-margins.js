@@ -59,9 +59,16 @@ export default async function handler(request) {
   const { from, to } = parseDateRange(searchParams);
   const qs = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
   const serviceToken = process.env.GRIT_SERVICE_TOKEN;
+  // grit-pos's /api/reports/revenue has no session of its own on the
+  // bearer-token (service-to-service) auth path — it scopes strictly off an
+  // `organization_id` query param (see route.ts's resolveTenantId). Without
+  // it every call 401s and the upstream marker becomes "error" (not
+  // "missing"), permanently zeroing revenue. See lib/passportVerify.js for
+  // where session.organizationId comes from.
+  const posQs = `${qs}&organization_id=${encodeURIComponent(session.organizationId)}`;
 
   const [posResult, inventoryResult] = await Promise.all([
-    fetchUpstream(process.env.GRIT_POS_URL, `/api/reports/revenue?${qs}`, { serviceToken }),
+    fetchUpstream(process.env.GRIT_POS_URL, `/api/reports/revenue?${posQs}`, { serviceToken }),
     fetchUpstream(process.env.GRIT_INVENTORY_URL, `/api/reports/cogs?${qs}&format=json`, {
       serviceToken,
     }),

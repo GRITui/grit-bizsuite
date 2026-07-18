@@ -75,7 +75,24 @@ card's id with `201`→`200`).
   rule as every resource endpoint here (`lib/auth.js` bearer session ->
   `lib/teams.js resolveDataOwner`, never a client-supplied owner field).
   - `GET /api/ops-tasks?status=<status>&since=<ISO timestamp>` — both
-    optional filters.
+    optional filters. `status=done&since=<t>` filters on `completed_at >=
+    t` (matching grit-reports' aggregate-labor.js's "completed since"
+    semantics, so a later unrelated edit to an old done card can't pull it
+    back into the window); every other `status`/`since` combination keeps
+    filtering on `updated_at`.
+  - `GET` also accepts a **service-token** auth path, for grit-reports'
+    cross-app labor aggregator
+    (`apps/grit-reports/api/aggregate-labor.js`) — it has no taskboard
+    session of its own. Send `Authorization: Bearer $GRIT_SERVICE_TOKEN`
+    plus a required `?organization_id=<id>`; the org is resolved to its
+    owning account via `grit_org_links`. An unrecognized/unlinked
+    `organization_id` is a normal `200` with `{rows: []}`, not an error —
+    the org may just not have connected a taskboard account yet. While
+    `GRIT_SERVICE_TOKEN` is unset, this path is fully disabled and every
+    `GET` uses ordinary bearer-session auth, same as before it existed.
+    Mirrors grit-pos's `app/api/reports/revenue/route.ts` bearer-token
+    path. `POST`/`PUT`/`DELETE` never accept this token — writes stay
+    session-only.
   - `POST /api/ops-tasks` — body `{id, title, description?, priority?,
     assigned_shift?, location_id?, status?}` (snake_case, matching every
     other resource endpoint's `select *` pass-through convention).
@@ -134,13 +151,53 @@ the local copy), and every local create/status-change pushes back
 best-effort (fire-and-forget, same `.catch(() => {})` posture every other
 `mirrorXSave` call site in this app already uses).
 
-### 5. Tests
+### 5. Grit Passport SSO (`lib/passport.js`)
+
+`lib/passport.js` is a plain-JS mirror of `@grit/passport`'s session
+verification (`packages/passport/src/session.ts`) — same "hand-mirror
+because this app has no build step" rationale as `lib/gritEvents.js`
+mirroring `packages/shared-events`, and the same `node:crypto` `webcrypto`
+technique `apps/grit-reports/lib/passportVerify.js` uses for its own JWT
+verification (no `jose` dependency needed). Exports:
+
+- `verifyPassportSession(req)` — resolves the `GritSession` from a Fetch API
+  `Request`'s `Authorization: Bearer <jwt>` header or `grit_passport`
+  cookie, or `null` if neither is present/valid.
+- `hasFeature(session, feature)` — minimal tier gate; currently only
+  recognizes `"taskboard.automation"` (mirrors
+  `hasFeatureAccess(session, "taskboard.automation")` from
+  `packages/passport/src/entitlements.ts` — SCALE tier only, per that
+  package's Commercial Core Configurations Matrix).
+
+**Deliberate divergence from the suite convention:** every other mirror
+(including `packages/passport/README.md`'s own mirror snippet) resolves the
+signing secret as `GRIT_SESSION_SECRET ?? SESSION_SECRET`. This app's
+`SESSION_SECRET` already signs a completely unrelated bearer-token scheme —
+this app's own 30-day user sessions (`lib/auth.js`) — so falling back to it
+here would HMAC two different wire formats with the same key. `lib/passport.js`
+reads `GRIT_SESSION_SECRET` **only**; see that file's header and
+`.env.example` for the full rationale. While `GRIT_SESSION_SECRET` is unset,
+`verifyPassportSession()` always returns `null` rather than silently reusing
+`SESSION_SECRET`.
+
+Not wired into any endpoint's auth yet (`api/grit-events.js` is
+HMAC-authenticated and has no session to verify; `api/ops-tasks.js` keeps
+its own `lib/auth.js` bearer scheme plus the `GRIT_SERVICE_TOKEN` service
+path above) — exported ahead of use for a future "Continue with Grit
+Passport" UI login path.
+
+### 6. Tests
 
 - `tests/test-grit-events.mjs` — sign/verify round-trip, tampered-body
   rejection, stale-timestamp rejection, `inventory.threshold_breached`
   creating a card idempotently against a fake sql, `pos.velocity_surge`
   card creation, unlinked-org `202`-skip, unknown-event `202`-ignore, bad
   signature `401`.
+- `tests/test-ops-tasks.mjs` — `GET /api/ops-tasks`'s service-token auth
+  path (valid token + linked org lists tasks, valid token + unlinked org ->
+  `200`/empty list, wrong token -> falls through to session auth -> `401`,
+  `GRIT_SERVICE_TOKEN` unset -> path disabled -> `401`/session fallback) and
+  the `status=done&since=` `completed_at`-vs-`updated_at` filter window.
 - `tests/test-schema-sync.mjs` — unchanged, now also guards the
   `ops_tasks`/`grit_org_links` addition staying byte-identical between
   `sql/schema-core.sql` and `lib/schemaSql.js`.
@@ -149,6 +206,7 @@ Run:
 
 ```sh
 node tests/test-grit-events.mjs
+node tests/test-ops-tasks.mjs
 node tests/test-schema-sync.mjs
 bash tests/run-all.sh   # full battery, including Playwright check-*.js suites
 ```
@@ -161,6 +219,8 @@ See `.env.example` for the full annotated list; new for this pass:
 | --- | --- | --- |
 | `GRIT_EVENT_WEBHOOK_SECRET` | Shared HMAC secret (same value across every Grit BizSuite app) signing/verifying the `packages/shared-events` wire format | `api/grit-events.js` answers `500`; `api/ops-tasks.js` silently skips emitting `task.completed` |
 | `GRIT_SUBSCRIBERS_TASK_COMPLETED` | Comma-separated subscriber URLs for the outbound `task.completed` event | No card completion ever emits an event — the board itself still works fully |
+| `GRIT_SERVICE_TOKEN` | Service-to-service bearer token for `GET /api/ops-tasks` (grit-reports' labor aggregator) | The service-token GET path is disabled; every `GET` uses ordinary bearer-session auth |
+| `GRIT_SESSION_SECRET` | Grit Passport SSO signing secret (`lib/passport.js`), same value across every Grit BizSuite app — **not** the same secret as `SESSION_SECRET` | `lib/passport.js`'s `verifyPassportSession()` always returns `null` |
 
 ## New endpoints
 
@@ -168,7 +228,7 @@ See `.env.example` for the full annotated list; new for this pass:
 | --- | --- | --- |
 | `POST /api/grit-events` | HMAC signature (server-to-server) | Inbound `inventory.threshold_breached`/`pos.velocity_surge` webhook -> ops task |
 | `GET/PUT/DELETE /api/grit-org-link` | Bearer session | This account's `grit_org_links` row |
-| `GET/POST/PUT/DELETE /api/ops-tasks` | Bearer session | Ops kanban CRUD |
+| `GET/POST/PUT/DELETE /api/ops-tasks` | Bearer session (GET also accepts `GRIT_SERVICE_TOKEN` + `?organization_id=`) | Ops kanban CRUD |
 
 ## Everything else
 

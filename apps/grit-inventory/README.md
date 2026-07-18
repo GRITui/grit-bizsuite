@@ -33,7 +33,7 @@ JWT auth (`jose` + `bcryptjs`).
    npm run dev
    ```
 
-4. Sign in at `http://localhost:3000/login` with the seeded admin
+4. Sign in at `http://localhost:3001/login` with the seeded admin
    (`admin@demo.invento` / `changeme123` by default — override with
    `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` env vars before seeding).
 
@@ -196,6 +196,9 @@ additive — migration
 ### Passport gates — @grit/passport
 
 - `Tenant` gained additive `tier` (default `GROWTH`) and `addons` columns.
+  Note: this app's `Tenant.tier` defaults to `GROWTH`, a deliberate
+  divergence from the platform-canonical `LITE` default in `@grit/database`
+  — existing invento tenants keep inventory access.
   `src/lib/passport.ts` bridges the existing JWT session to the shared
   `GritSession` (`tenantId → organizationId`, `storeId → locationId`,
   `OWNER → owner`, `ADMIN → manager`, `STAFF → staff`).

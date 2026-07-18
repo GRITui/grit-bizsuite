@@ -11,7 +11,12 @@ import {
 import { publishTransactionCompleted, type CompletedOrderLine } from "@/lib/events";
 import { checkVelocitySurge } from "@/lib/velocity";
 import { errorResponse, HttpError, readJsonBody } from "../_lib/http";
-import { findOrderForTenant, serializeOrder, type OrderWithRelations } from "../_lib/queries";
+import {
+  findOrderForTenant,
+  orderInclude,
+  serializeOrder,
+  type OrderWithRelations,
+} from "../_lib/queries";
 import { computeLineTotal, computeUnitPrice, parseMoneyInput, sumDecimals } from "../_lib/pricing";
 
 // POST /api/orders/offline-sync
@@ -107,45 +112,70 @@ async function applyTenderOp(
     return rejected(externalRef, "amount must be greater than zero");
   }
 
-  const order = await findOrderForTenant(tenantId, op.orderId);
-  if (!order) return rejected(externalRef, "Order not found");
-  if (order.status !== OrderStatus.open && order.status !== OrderStatus.tendered) {
-    return rejected(externalRef, `Cannot tender an order with status "${order.status}"`);
+  const orderId = op.orderId;
+
+  // A Postgres row lock on the order (held for the rest of this function's
+  // transaction) is required here, not just the externalRef dedupe above:
+  // externalRef only protects against replaying the SAME op twice. It does
+  // nothing to stop this op racing a DIFFERENT concurrent writer on the same
+  // order — a staff-register tender submitted at the register while this
+  // synced batch is in flight, or two overlapping offline-sync requests each
+  // carrying a distinct externalRef for the same order. Without the lock,
+  // both could read the same "not yet fully paid" snapshot and both flip the
+  // order to `closed`, double-booking the payment and firing
+  // `transaction.completed` twice for one order.
+  let outcome: { isFullyPaid: boolean; subtotal: ReturnType<typeof sumDecimals>; order: OrderWithRelations };
+  try {
+    outcome = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+
+      const order = await tx.order.findFirst({
+        where: { id: orderId, tenantId },
+        include: orderInclude,
+      });
+      if (!order) throw new HttpError(404, "Order not found");
+      if (order.status !== OrderStatus.open && order.status !== OrderStatus.tendered) {
+        throw new HttpError(409, `Cannot tender an order with status "${order.status}"`);
+      }
+      if (order.lines.length === 0) {
+        throw new HttpError(400, "Cannot tender an empty order");
+      }
+
+      const subtotal = sumDecimals(order.lines.map((l) => l.lineTotal));
+      const priorPaid = sumDecimals(
+        order.payments.filter((p) => p.status === PaymentStatus.succeeded).map((p) => p.amount),
+      );
+      const isFullyPaid = priorPaid.plus(amount).greaterThanOrEqualTo(subtotal);
+
+      await tx.payment.create({
+        data: {
+          orderId: order.id,
+          tenderType: op.tenderType as TenderType,
+          amount,
+          status: PaymentStatus.succeeded,
+          externalRef,
+        },
+      });
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: isFullyPaid ? OrderStatus.closed : OrderStatus.tendered },
+      });
+
+      return { isFullyPaid, subtotal, order };
+    });
+  } catch (err) {
+    if (err instanceof HttpError) return rejected(externalRef, err.message);
+    throw err;
   }
-  if (order.lines.length === 0) {
-    return rejected(externalRef, "Cannot tender an empty order");
-  }
 
-  const subtotal = sumDecimals(order.lines.map((l) => l.lineTotal));
-  const priorPaid = sumDecimals(
-    order.payments.filter((p) => p.status === PaymentStatus.succeeded).map((p) => p.amount),
-  );
-  const isFullyPaid = priorPaid.plus(amount).greaterThanOrEqualTo(subtotal);
-
-  await prisma.$transaction([
-    prisma.payment.create({
-      data: {
-        orderId: order.id,
-        tenderType: op.tenderType as TenderType,
-        amount,
-        status: PaymentStatus.succeeded,
-        externalRef,
-      },
-    }),
-    prisma.order.update({
-      where: { id: order.id },
-      data: { status: isFullyPaid ? OrderStatus.closed : OrderStatus.tendered },
-    }),
-  ]);
-
-  if (isFullyPaid) {
+  if (outcome.isFullyPaid) {
     completed.push({
-      orderId: order.id,
-      totalAmount: Number(subtotal),
-      lines: collectEventLines(order),
+      orderId: outcome.order.id,
+      totalAmount: Number(outcome.subtotal),
+      lines: collectEventLines(outcome.order),
     });
   }
-  return { externalRef, status: "applied", orderId: order.id };
+  return { externalRef, status: "applied", orderId: outcome.order.id };
 }
 
 /** Applies one offline quick sale: order + lines + cash tender atomically. */

@@ -83,18 +83,27 @@ async function handleTransactionCompleted(event: TransactionCompletedEvent) {
     return { ok: true, processed: 0, warnings };
   }
 
-  // location_id -> Store by id, else the tenant's default store.
-  const store =
-    (await db.store.findFirst({ where: { id: location_id, tenantId: tenant.id } })) ??
-    (await db.store.findFirst({
-      where: { tenantId: tenant.id, isDefault: true },
-      orderBy: { createdAt: "asc" },
-    }));
+  // grit-pos has no Location model yet, so it deliberately sends
+  // location_id = organization_id (the tenant id) as its POS convention for
+  // "no specific store". Treat that as first-class and resolve straight to
+  // the tenant's default store with no warning — it isn't an unknown id.
+  const isPosOrgFallback = location_id === organization_id;
+
+  const store = isPosOrgFallback
+    ? await db.store.findFirst({
+        where: { tenantId: tenant.id, isDefault: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : (await db.store.findFirst({ where: { id: location_id, tenantId: tenant.id } })) ??
+      (await db.store.findFirst({
+        where: { tenantId: tenant.id, isDefault: true },
+        orderBy: { createdAt: "asc" },
+      }));
   if (!store) {
     warnings.push(`Tenant ${tenant.id} has no store — event acknowledged, no stock changed`);
     return { ok: true, processed: 0, warnings };
   }
-  if (store.id !== location_id) {
+  if (!isPosOrgFallback && store.id !== location_id) {
     warnings.push(`Unknown location ${location_id} — applied to default store ${store.id}`);
   }
 
@@ -128,7 +137,16 @@ async function handleTransactionCompleted(event: TransactionCompletedEvent) {
     );
     processed += 1;
 
-    if (movement.storeQuantity <= movement.reorderThreshold) {
+    // Fire only on the transition into breach (previous quantity above the
+    // threshold, new quantity at/below it) — not on every sale that keeps the
+    // store below an already-breached threshold. `item.quantity` is the exact
+    // magnitude of this decrement, so the pre-movement quantity is recoverable
+    // without an extra read.
+    const previousStoreQuantity = movement.storeQuantity + item.quantity;
+    if (
+      previousStoreQuantity > movement.reorderThreshold &&
+      movement.storeQuantity <= movement.reorderThreshold
+    ) {
       breaches.push({
         variantId: variant.id,
         sku: variant.sku,

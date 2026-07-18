@@ -12,6 +12,7 @@ export const EVENT_NAMES = [
   "inventory.transfer_completed",
   "pos.velocity_surge",
   "task.completed",
+  "promotion.updated",
 ] as const;
 
 export type GritEventName = (typeof EVENT_NAMES)[number];
@@ -106,12 +107,50 @@ export type TaskCompletedEvent = GritEventEnvelope<
   TaskCompletedData
 >;
 
+/**
+ * Emitted by Grit Inventory whenever a pricing/promotion rule is created,
+ * edited, deactivated, or deleted. Grit POS is offline-first and never calls
+ * another app live at checkout time, so this is the only way a promotion
+ * ever reaches the register: POS caches the current rule set locally
+ * (upserted/removed by this event) and evaluates it against cart lines
+ * itself. `deleted: true` means "remove this rule from the cache" — the rest
+ * of the fields are still populated for logging/audit but should not be
+ * treated as the current state of a deleted rule.
+ */
+export interface PromotionUpdatedData {
+  promotion_id: string;
+  name: string;
+  type: "buy_x_pay_y" | "buy_x_get_discount" | "bundle_deal";
+  is_active: boolean;
+  deleted: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  /** buy_x_pay_y */
+  buy_quantity?: number;
+  pay_quantity?: number;
+  /** buy_x_get_discount */
+  min_quantity?: number;
+  discount_kind?: "percent" | "fixed_amount";
+  discount_value?: number;
+  /** bundle_deal */
+  bundle_price?: number;
+  /** The SKUs this rule applies to (buy_x_pay_y/buy_x_get_discount scope, or
+   * the bundle's member SKUs for bundle_deal). Always resolved to SKUs, not
+   * internal variant ids — SKU is the only join key POS and Inventory share. */
+  items: Array<{ sku: string; required_quantity: number }>;
+}
+export type PromotionUpdatedEvent = GritEventEnvelope<
+  "promotion.updated",
+  PromotionUpdatedData
+>;
+
 export type GritEvent =
   | TransactionCompletedEvent
   | InventoryThresholdBreachedEvent
   | InventoryTransferCompletedEvent
   | PosVelocitySurgeEvent
-  | TaskCompletedEvent;
+  | TaskCompletedEvent
+  | PromotionUpdatedEvent;
 
 /* ------------------------------------------------------------------ */
 /* Runtime validation (dependency-free so no-build JS apps can mirror it) */
@@ -175,6 +214,22 @@ const DATA_VALIDATORS: Record<GritEventName, (d: unknown) => boolean> = {
     isNonEmptyString(d.title) &&
     isNonEmptyString(d.created_at) &&
     isNonEmptyString(d.completed_at),
+  "promotion.updated": (d) =>
+    isRecord(d) &&
+    isNonEmptyString(d.promotion_id) &&
+    isNonEmptyString(d.name) &&
+    typeof d.type === "string" &&
+    ["buy_x_pay_y", "buy_x_get_discount", "bundle_deal"].includes(d.type) &&
+    typeof d.is_active === "boolean" &&
+    typeof d.deleted === "boolean" &&
+    Array.isArray(d.items) &&
+    d.items.every(
+      (i) =>
+        isRecord(i) &&
+        isNonEmptyString(i.sku) &&
+        isFiniteNumber(i.required_quantity) &&
+        i.required_quantity > 0,
+    ),
 };
 
 export function isGritEventName(v: unknown): v is GritEventName {

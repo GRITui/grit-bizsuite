@@ -13,6 +13,7 @@ HMAC-signed internal webhooks with a durable Postgres outbox for retries.
 | `inventory.transfer_completed` | grit-inventory | grit-reports |
 | `pos.velocity_surge` | grit-pos | grit-taskboard (open auxiliary terminal card) |
 | `task.completed` | grit-taskboard | grit-reports (labor efficiency) |
+| `promotion.updated` | grit-inventory | grit-pos (checkout pricing cache — POS is offline-first and never calls another app live at sale time, so this event is the only way a rule reaches the register) |
 
 ## Wire format
 

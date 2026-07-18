@@ -3,6 +3,7 @@ import type {
   GritEventName,
   InventoryThresholdBreachedData,
   InventoryTransferCompletedData,
+  PromotionUpdatedData,
 } from "@grit/shared-events/contracts";
 import { db } from "@/lib/db";
 
@@ -168,4 +169,18 @@ export async function publishTransferCompleted(
   await publishEventSafe(
     sharedEvents.buildEvent("inventory.transfer_completed", organizationId, data)
   );
+}
+
+/**
+ * Grit BizSuite pivot (promotions module): published on every promotion
+ * create/update/deactivate/delete. Grit POS is offline-first and caches the
+ * rule set from this event rather than calling this app live at checkout —
+ * see the schema comment above the Promotion model and
+ * @grit/shared-events/contracts's PromotionUpdatedData docstring.
+ */
+export async function publishPromotionUpdated(
+  organizationId: string,
+  data: PromotionUpdatedData
+): Promise<void> {
+  await publishEventSafe(sharedEvents.buildEvent("promotion.updated", organizationId, data));
 }

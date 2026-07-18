@@ -34,7 +34,7 @@ export default async function PosDashboardPage() {
 
   return (
     <OrderDashboard
-      initialOrders={orders.map(serializeOrder)}
+      initialOrders={await Promise.all(orders.map(serializeOrder))}
       tables={tables}
       tablesEnabled={tablesEnabled}
       offlineEnabled={offlineEnabled}

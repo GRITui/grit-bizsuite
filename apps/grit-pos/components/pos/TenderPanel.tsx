@@ -40,6 +40,12 @@ export default function TenderPanel({
           <span className="text-zinc-500 dark:text-zinc-400">Order subtotal</span>
           <span className="tabular-nums">{formatMoney(order.subtotal)}</span>
         </div>
+        {order.discountTotal > 0 && (
+          <div className="flex justify-between text-sm text-emerald-700 dark:text-emerald-400">
+            <span>Promotions</span>
+            <span className="tabular-nums">-{formatMoney(order.discountTotal)}</span>
+          </div>
+        )}
         {order.paidTotal > 0 && (
           <div className="flex justify-between text-sm">
             <span className="text-zinc-500 dark:text-zinc-400">Already paid</span>

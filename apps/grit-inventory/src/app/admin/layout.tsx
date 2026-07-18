@@ -29,6 +29,25 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (hasFeatureAccess(grit, "inventory.transfers")) {
     navItems.splice(3, 0, { href: "/admin/transfers", label: "Transfers" });
   }
+  // Item groups (Grit BizSuite WMS epic) reuses the same SCALE gate as
+  // stores/transfers rather than introducing a new feature key.
+  if (hasFeatureAccess(grit, "inventory.multi_location")) {
+    navItems.splice(navItems.findIndex((item) => item.href === "/admin/products") + 1, 0, {
+      href: "/admin/groups",
+      label: "Groups",
+    });
+  }
+  if (hasFeatureAccess(grit, "inventory.multi_location")) {
+    navItems.splice(4, 0, { href: "/admin/locations", label: "Locations" });
+  }
+  // Promotions (Grit BizSuite pivot) reuses the same SCALE gate rather than
+  // introducing a new feature key.
+  if (hasFeatureAccess(grit, "inventory.multi_location")) {
+    navItems.splice(navItems.findIndex((item) => item.href === "/admin/locations") + 1, 0, {
+      href: "/admin/promotions",
+      label: "Promotions",
+    });
+  }
 
   const appNav = buildAppNav(grit);
 

@@ -28,7 +28,7 @@ export default async function PosOrderPage({
 
   return (
     <OrderBuilder
-      initialOrder={serializeOrder(order)}
+      initialOrder={await serializeOrder(order)}
       catalog={serializeCatalog(categories)}
       matrixEnabled={traits.has("retail.variant_matrix")}
       offlineEnabled={sessionHasFeature(gritSession, "pos.offline_mode")}

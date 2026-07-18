@@ -91,7 +91,7 @@ export async function POST(
     if (!updated) {
       throw new HttpError(500, "Failed to reload order after adding line");
     }
-    return NextResponse.json({ order: serializeOrder(updated) }, { status: 201 });
+    return NextResponse.json({ order: await serializeOrder(updated) }, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }

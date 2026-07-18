@@ -18,7 +18,7 @@ export async function GET(
     if (!order) {
       throw new HttpError(404, "Order not found");
     }
-    return NextResponse.json({ order: serializeOrder(order) });
+    return NextResponse.json({ order: await serializeOrder(order) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -66,7 +66,7 @@ export async function PATCH(
     });
 
     const order = await findOrderForTenant(tenantId, orderId);
-    return NextResponse.json({ order: order ? serializeOrder(order) : null });
+    return NextResponse.json({ order: order ? await serializeOrder(order) : null });
   } catch (err) {
     return errorResponse(err);
   }

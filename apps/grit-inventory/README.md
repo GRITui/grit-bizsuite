@@ -267,6 +267,184 @@ Schema only in this commit; the API routes, admin UI, and picking/packing
 screens are tracked separately (see the sections each module adds below as
 they land).
 
+#### Item groups / sub-groups module
+
+`/admin/groups` (SCALE, gated on `inventory.multi_location` — the existing
+feature key, no new key was added): lists the tenant's `ItemGroup`s, each
+expandable to its `ItemSubGroup`s. Both levels support create, inline
+rename, and reorder (up/down, swaps `sortOrder` with the adjacent sibling
+transactionally). Deletes are guarded: a group refuses (409) while it still
+has sub-groups; a sub-group refuses (409) while any product still references
+it via `Product.subGroupId`.
+
+Product↔group assignment happens **only** from the sub-group side — each
+sub-group has a "Products in this group" panel to search the tenant's
+products (debounced, name-contains) and assign (`subGroupId` set) or remove
+(`subGroupId` cleared) them. The product admin pages themselves are
+untouched.
+
+New endpoints (all under the `inventory.multi_location` gate; mutations
+additionally require the ADMIN role):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET/POST /api/item-groups` | List groups (with sub-groups + product counts) / create |
+| `PATCH/DELETE /api/item-groups/[id]` | Rename and/or reorder / delete (409 if it has sub-groups) |
+| `POST /api/item-groups/[id]/sub-groups` | Create a sub-group under a group |
+| `PATCH/DELETE /api/item-sub-groups/[id]` | Rename and/or reorder / delete (409 if products are assigned) |
+| `GET/POST/DELETE /api/item-sub-groups/[id]/products` | List assigned products / assign `{productId}` / unassign `{productId}` |
+
+`GET /api/products` also gained an optional `?q=` search-by-name param
+(case-insensitive `contains`, capped at 25 results), used by the assign
+panel above; omitting it keeps the original unfiltered behavior.
+
+#### Item location / planogram module
+
+`/admin/locations` (SCALE, gated on `inventory.multi_location`): a store
+selector (tab links, same pattern as the Products page's store filter) above
+a table of that store's `VariantLocation` rows — SKU, product/variant name,
+code, zone, and an `isPrimary` badge. Assignment happens **from this page**:
+an "Assign a location" form searches the tenant's variants by SKU/name/product
+name (client-side substring match) and adds a row for the picked variant; the
+product admin pages themselves are untouched. Rows support inline edit and
+delete.
+
+The existing keyboard-wedge barcode scanner (`useBarcodeScanner`) is wired in:
+scanning a known SKU (looked up via `GET /api/variants/lookup`) filters the
+table down to that variant's locations at the selected store and pre-fills it
+in the assign form; scanning an unknown SKU shows a dismissible "No such SKU"
+banner instead of opening an assign-variant dialog (this page is about
+locations, not SKU creation — contrast with the Products page's barcode
+listener).
+
+`isPrimary=true` is app-level-exclusive per `(storeId, variantId)` — not
+DB-enforced (see the schema note above). `POST /api/variant-locations` and
+`PATCH /api/variant-locations/[id]` both flip any other primary row for the
+same `(storeId, variantId)` to `isPrimary=false` in the same transaction
+before writing the new/edited row.
+
+New endpoints (all under the `inventory.multi_location` gate; mutations
+additionally require the ADMIN role):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/variant-locations?storeId=&variantId=&sku=` | List locations, filterable by store, variant id, or exact SKU |
+| `POST /api/variant-locations` | Create a location (`{storeId, variantId, code, zone?, notes?, isPrimary?}`, defaults `isPrimary: true`) |
+| `PATCH/DELETE /api/variant-locations/[id]` | Edit (code/zone/notes/isPrimary) or remove a location |
+
+#### Picking / packing / parcel label module
+
+The scanner-driven order-fulfillment-ops workflow (SCALE, gated on
+`inventory.multi_location`): layered on top of the existing
+`pending → paid → fulfilling → fulfilled` order state machine
+(`src/lib/orders.ts`, unchanged) as an **explicitly opt-in** sub-flow. An
+order that never gets a `PickTask` created for it behaves exactly as
+before — the gate below only engages once a `PackTask` exists.
+
+On `/admin/orders/[id]`, while an order is `fulfilling`, a "Fulfillment"
+card walks staff through three steps, each gated on the previous one
+completing:
+
+1. **Pick** — "Start picking" creates a `PickTask` snapshotting each line's
+   variant, required quantity, and (if assigned) the variant's primary
+   `VariantLocation.code` at that store, so a later planogram edit doesn't
+   retroactively change what the picker was shown. A checklist (SKU,
+   product, location, `picked / required`) plus a scan box — wired to the
+   real `useBarcodeScanner` keyboard-wedge listener, with a fallback text
+   input + button for testing without hardware — let staff scan each unit;
+   the task auto-completes once every item's `quantityPicked` meets its
+   `quantityRequired`.
+2. **Pack** — once picking is complete, "Start packing" creates a `PackTask`
+   copied from the completed `PickTask`'s items (a second scan pass that
+   re-verifies contents before sealing), with the same checklist/scan-box UI
+   and the same auto-complete rule (`quantityPacked`).
+3. **Label** — once packing is complete, "Generate label" creates a
+   `ParcelLabel` (`trackingRef` self-generated as `PKG-<10 chars>`,
+   `toName`/`toAddress` from the order's customer fields, `itemCount` summed
+   from the order's lines) and a "Print label" link opens
+   `/admin/orders/[id]/label/[labelId]` — a print-friendly view (`@media
+   print` sized ~4x6) with the tracking ref as large text, a self-drawn
+   div/SVG-style bar pattern (no real carrier integration or scannable
+   barcode — this is an internal MVP label), destination, item count, and
+   order number, plus a "Mark as printed" button.
+
+None of this moves stock — the order's lines were already decremented at
+the `fulfilling` transition (`applyStockMovement`, unchanged); picking and
+packing only track the physical gather/verify/seal steps.
+
+**The one change to the transition route**: `POST
+/api/orders/[id]/transition` with `{to: "fulfilled"}` now checks whether the
+order has a `PackTask`; if one exists and isn't `status: "complete"`, the
+transition is refused with 409 instead of proceeding. An order with no
+`PackTask` at all transitions exactly as before (fully backward compatible).
+`transitionOrder`'s core state machine (`lib/orders.ts`) itself is
+untouched — the check lives in the route handler.
+
+Unlike the groups/locations/promotions modules above, these mutation
+endpoints do **not** additionally require the ADMIN role — picking, packing,
+and labeling are order-fulfillment-floor actions any signed-in staff member
+performs mid-order, the same permissiveness as the pre-existing `POST
+/api/orders/[id]/transition` and `/payments` routes. All are still gated on
+the `inventory.multi_location` feature (SCALE).
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/orders/[id]/pick-task` | Create the pick task (409 if one exists, or order isn't `fulfilling`) |
+| `GET /api/pick-tasks/[id]` | Fetch a pick task with its items |
+| `POST /api/pick-tasks/[id]/scan` | Record one scanned unit (`{sku}`); auto-completes the task |
+| `POST /api/orders/[id]/pack-task` | Create the pack task from a completed pick task (409 if pick task isn't complete, or a pack task exists) |
+| `GET /api/pack-tasks/[id]` | Fetch a pack task with its items |
+| `POST /api/pack-tasks/[id]/scan` | Record one scanned unit (`{sku}`); auto-completes the task |
+| `POST /api/orders/[id]/parcel-label` | Generate a label (409 unless the pack task is complete) |
+| `GET/PATCH /api/parcel-labels/[id]` | Fetch a label / mark it printed (`printedAt`, idempotent) |
+
+#### Promotion admin module
+
+`/admin/promotions` (SCALE, gated on `inventory.multi_location` — the
+existing feature key, no new key added): lists the tenant's `Promotion`
+rows (name, a type badge, and a human-readable summary — e.g. "Buy 3 pay
+for 2", "Buy 5+ get 10% off", "Bundle: $49.99 for 3 items") with
+create/edit/activate-deactivate/delete. One shared form handles all three
+`PromotionType`s with type-specific fields:
+
+- `buy_x_pay_y` — `buyQuantity` / `payQuantity` (`payQuantity` must be ≤
+  `buyQuantity`), scoped by variants and/or item sub-groups.
+- `buy_x_get_discount` — `minQuantity`, `discountKind`
+  (`percent` ≤ 100 | `fixed_amount`), `discountValue`, same variant/sub-group
+  scope picker.
+- `bundle_deal` — `bundlePrice` plus an explicit multi-select of member
+  variants, each with its own `requiredQuantity`. Per the schema design this
+  type never uses `PromotionGroup` (sub-group) scoping — bundle membership is
+  always explicit `PromotionVariant` rows.
+
+The scope/bundle-member variant picker is a client-side SKU/name/product-name
+substring search over the tenant's active variants (same pattern as the
+Locations admin's assign form); the sub-group picker is a checkbox list of
+the tenant's `ItemSubGroup`s. Edit submits the full desired state (a
+"replace", not a partial patch) — the same schema as create, including
+`isActive`, which is how deactivate works from the same endpoint.
+
+**Publishing to Grit POS**: every create, edit, activate/deactivate, and
+delete resolves the rule's `items: [{sku, required_quantity}]` (explicit
+`scopeVariants` plus `scopeGroups` expanded to every product's variants
+currently in that sub-group; explicit variant entries win on overlap) and
+publishes `promotion.updated` via the same `getEventBus()` /
+`EventOutbox` this app already uses for `inventory.*` events (see
+`src/lib/promotions.ts`, `src/lib/events.ts`). Deactivating a promotion
+(`isActive: false`) publishes `deleted: true` in the event just like a hard
+delete does — from POS's cache-consumer perspective both mean "stop applying
+this rule". Publish failures are logged and never block the CRUD request
+(same `publishEventSafe` guarantee as the rest of the app's outbound
+events).
+
+New endpoints (all under the `inventory.multi_location` gate; mutations
+additionally require the ADMIN role):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET/POST /api/promotions` | List the tenant's promotions (with scope) / create |
+| `GET/PATCH/DELETE /api/promotions/[id]` | Fetch one (for the edit form) / full-replace update / delete |
+
 ### New/changed environment variables
 
 | Env var | Purpose |
@@ -283,6 +461,8 @@ they land).
 | --- | --- |
 | `GET/POST /api/stores`, `PATCH/DELETE /api/stores/[id]` | Store management (SCALE) |
 | `GET/POST /api/transfers`, `POST /api/transfers/[id]/transition` | Transfer orders (SCALE) |
+| `GET/POST /api/variant-locations`, `PATCH/DELETE /api/variant-locations/[id]` | Planogram locations (SCALE) |
+| `POST /api/orders/[id]/pick-task`, `POST /api/orders/[id]/pack-task`, `POST /api/orders/[id]/parcel-label`, `.../scan`, `GET/PATCH /api/parcel-labels/[id]` | Picking/packing/label workflow (SCALE — see "Picking / packing / parcel label module" above) |
 | `GET /api/reports/cogs?from&to[&format=csv]` | FIFO COGS report (SCALE) |
 | `GET /api/variants/lookup?sku=` | Barcode SKU lookup |
 | `POST /api/events/grit` | Inbound HMAC event webhook (public route, HMAC-authed) |

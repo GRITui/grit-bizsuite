@@ -19,6 +19,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return apiError(parsed.error.issues[0]?.message ?? "Invalid transition");
   }
 
+  // Grit WMS epic: an order that has a PackTask (i.e. staff opted it into
+  // the picking/packing workflow) must finish packing before it can be
+  // marked fulfilled. Orders that never got a PackTask are completely
+  // unaffected — this is the only change to this route; transitionOrder's
+  // core state machine (lib/orders.ts) is untouched.
+  if (parsed.data.to === "fulfilled") {
+    const packTask = await db.packTask.findFirst({
+      where: { orderId: id, tenantId: session.tenantId },
+      select: { status: true },
+    });
+    if (packTask && packTask.status !== "complete") {
+      return apiError("This order's pack task must be complete before it can be marked fulfilled", 409);
+    }
+  }
+
   try {
     const order = await db.$transaction((tx) =>
       transitionOrder(tx, {

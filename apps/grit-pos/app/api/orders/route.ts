@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     const statuses = parseStatusFilter(searchParams);
 
     const orders = await listOrdersForTenant(tenantId, statuses);
-    return NextResponse.json({ orders: orders.map(serializeOrder) });
+    return NextResponse.json({ orders: await Promise.all(orders.map(serializeOrder)) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       throw new HttpError(500, "Failed to load newly created order");
     }
 
-    return NextResponse.json({ order: serializeOrder(order) }, { status: 201 });
+    return NextResponse.json({ order: await serializeOrder(order) }, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }

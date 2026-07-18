@@ -7,7 +7,7 @@ import { requireTenantId } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
 import { errorResponse, HttpError, readJsonBody } from "../../_lib/http";
-import { findOrderForTenant, orderInclude, serializeOrder } from "../../_lib/queries";
+import { computeOrderDiscount, findOrderForTenant, orderInclude, serializeOrder } from "../../_lib/queries";
 import { parseMoneyInput, sumDecimals } from "../../_lib/pricing";
 
 // Stripe is a valid TenderType in the schema (for future online/QR-link
@@ -65,7 +65,7 @@ export async function POST(
     // serializes concurrent writers so the second one observes the first
     // writer's committed payment before deciding whether the order is now
     // fully paid.
-    const { isFullyPaid, changeDue, subtotal } = await prisma.$transaction(
+    const { isFullyPaid, changeDue, amountDue } = await prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
 
@@ -84,12 +84,19 @@ export async function POST(
         }
 
         const subtotal = sumDecimals(order.lines.map((l) => l.lineTotal));
+        // Promotions reduce what's actually owed (a distinct order-total
+        // adjustment, not a mutation of line pricing — see
+        // computeOrderDiscount's doc comment), so "fully paid" must be judged
+        // against subtotal minus the current discount, not the raw subtotal.
+        const { totalDiscount } = await computeOrderDiscount(tenantId, order.lines);
+        const amountDueRaw = subtotal.minus(totalDiscount);
+        const amountDue = amountDueRaw.isNegative() ? new Decimal(0) : amountDueRaw;
         const priorPaid = sumDecimals(
           order.payments.filter((p) => p.status === PaymentStatus.succeeded).map((p) => p.amount),
         );
         const totalPaid = priorPaid.plus(amount);
-        const isFullyPaid = totalPaid.greaterThanOrEqualTo(subtotal);
-        const changeDue = isFullyPaid ? totalPaid.minus(subtotal) : new Decimal(0);
+        const isFullyPaid = totalPaid.greaterThanOrEqualTo(amountDue);
+        const changeDue = isFullyPaid ? totalPaid.minus(amountDue) : new Decimal(0);
 
         await tx.payment.create({
           data: {
@@ -113,7 +120,7 @@ export async function POST(
           },
         });
 
-        return { isFullyPaid, changeDue, subtotal };
+        return { isFullyPaid, changeDue, amountDue };
       },
     );
 
@@ -122,13 +129,15 @@ export async function POST(
 
     // Grit BizSuite events — published fire-and-forget AFTER the response
     // (the tender DB transaction above has committed); event plumbing can
-    // never block or fail checkout.
+    // never block or fail checkout. `amountDue` (post-discount) is reported
+    // as the transaction total, not the raw line subtotal — it's what was
+    // actually charged.
     if (isFullyPaid) {
       after(async () => {
         await publishTransactionCompleted({
           tenantId,
           orderId,
-          totalAmount: Number(subtotal),
+          totalAmount: Number(amountDue),
           lines: updated.lines.map((line) => ({
             productId: line.productId,
             variantSku: line.variant?.sku ?? null,
@@ -141,7 +150,7 @@ export async function POST(
     }
 
     return NextResponse.json({
-      order: serializeOrder(updated),
+      order: await serializeOrder(updated),
       changeDue: Number(changeDue),
     });
   } catch (err) {

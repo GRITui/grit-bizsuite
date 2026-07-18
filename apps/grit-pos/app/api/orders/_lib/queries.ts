@@ -9,6 +9,8 @@ import type {
   PaymentStatus,
   TenderType,
 } from "@/app/generated/prisma/enums";
+import { eventItemSku } from "@/lib/events";
+import { evaluatePromotions, type PromotionCartLine } from "@/lib/promotions";
 import { sumDecimals } from "./pricing";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +85,12 @@ export interface PaymentDTO {
   createdAt: string;
 }
 
+export interface DiscountAppliedDTO {
+  ruleId: string;
+  name: string;
+  amount: number;
+}
+
 export interface OrderDTO {
   id: string;
   tenantId: string;
@@ -94,21 +102,52 @@ export interface OrderDTO {
   updatedAt: string;
   lines: OrderLineDTO[];
   payments: PaymentDTO[];
-  /** Sum of every line's lineTotal. */
+  /** Sum of every line's lineTotal. Line pricing itself is never discounted in place (see OrderLine.unitPrice doc comment) — promotions are applied below as a distinct order-total adjustment. */
   subtotal: number;
+  /** Total of every active PromotionRule that matched the order's current lines (lib/promotions.ts), recomputed on every read (not persisted) — same "derived, not stored" treatment as `subtotal`/`paidTotal`. */
+  discountTotal: number;
+  /** Per-rule breakdown backing `discountTotal`, for display (e.g. "Promotions" row) and audit. */
+  discountsApplied: DiscountAppliedDTO[];
   /** Sum of every `succeeded` payment's amount. */
   paidTotal: number;
-  /** max(subtotal - paidTotal, 0) — what's still owed. */
+  /** max(subtotal - discountTotal - paidTotal, 0) — what's still owed. */
   balanceDue: number;
 }
 
-export function serializeOrder(order: OrderWithRelations): OrderDTO {
+/**
+ * Fetches the tenant's currently-active PromotionRule cache rows (synced by
+ * app/api/events/grit/route.ts) and evaluates them against this order's
+ * lines. SKUs are resolved the same way the outbound `transaction.completed`
+ * event resolves them (lib/events.ts `eventItemSku`) so promotion scoping and
+ * event reporting always agree on what a line's SKU is.
+ */
+export async function computeOrderDiscount(
+  tenantId: string,
+  lines: OrderWithRelations["lines"],
+): Promise<{ totalDiscount: Decimal; applied: DiscountAppliedDTO[] }> {
+  if (lines.length === 0) return { totalDiscount: new Decimal(0), applied: [] };
+
+  const rules = await prisma.promotionRule.findMany({ where: { tenantId, isActive: true } });
+  if (rules.length === 0) return { totalDiscount: new Decimal(0), applied: [] };
+
+  const cartLines: PromotionCartLine[] = lines.map((line) => ({
+    sku: eventItemSku({ productId: line.productId, variantSku: line.variant?.sku ?? null }),
+    quantity: line.quantity,
+    unitPrice: Number(line.unitPrice),
+  }));
+
+  const { totalDiscount, applied } = evaluatePromotions(cartLines, rules);
+  return { totalDiscount: new Decimal(totalDiscount), applied };
+}
+
+export async function serializeOrder(order: OrderWithRelations): Promise<OrderDTO> {
   const lineTotals = order.lines.map((l) => l.lineTotal);
   const subtotal = sumDecimals(lineTotals);
   const paidTotal = sumDecimals(
     order.payments.filter((p) => p.status === "succeeded").map((p) => p.amount),
   );
-  const balanceDue = clampNonNegative(subtotal.minus(paidTotal));
+  const { totalDiscount, applied } = await computeOrderDiscount(order.tenantId, order.lines);
+  const balanceDue = clampNonNegative(subtotal.minus(totalDiscount).minus(paidTotal));
 
   return {
     id: order.id,
@@ -143,6 +182,8 @@ export function serializeOrder(order: OrderWithRelations): OrderDTO {
       createdAt: p.createdAt.toISOString(),
     })),
     subtotal: Number(subtotal),
+    discountTotal: Number(totalDiscount),
+    discountsApplied: applied,
     paidTotal: Number(paidTotal),
     balanceDue: Number(balanceDue),
   };

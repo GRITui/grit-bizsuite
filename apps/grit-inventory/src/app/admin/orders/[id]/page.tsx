@@ -1,15 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { hasFeatureAccess } from "@grit/passport";
 import { db } from "@/lib/db";
-import { requireSession } from "@/lib/session";
+import { requireGritContext } from "@/lib/passport";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { OrderActions } from "@/components/order-actions";
+import { OrderFulfillment } from "@/components/order-fulfillment";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSession();
+  const ctx = await requireGritContext();
+  const session = ctx.local;
   const { id } = await params;
 
   const order = await db.order.findFirst({
@@ -19,9 +22,15 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       payments: { orderBy: { createdAt: "desc" } },
       delivery: true,
       createdBy: { select: { name: true } },
+      pickTask: { include: { items: { include: { variant: { select: { sku: true, name: true } } } } } },
+      packTask: { include: { items: { include: { variant: { select: { sku: true, name: true } } } } } },
+      parcelLabels: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
   if (!order) notFound();
+
+  const canFulfillmentWorkflow = hasFeatureAccess(ctx.grit, "inventory.multi_location");
+  const latestLabel = order.parcelLabels[0] ?? null;
 
   const total = order.lines.reduce((sum, l) => sum + Number(l.unitPrice) * l.quantity, 0);
 
@@ -86,6 +95,64 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <OrderActions orderId={order.id} status={order.status} total={total} />
             </div>
           </Card>
+
+          {order.status === "fulfilling" && (
+            <Card>
+              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Fulfillment</h2>
+              {canFulfillmentWorkflow ? (
+                <div className="mt-3">
+                  <OrderFulfillment
+                    orderId={order.id}
+                    pickTask={
+                      order.pickTask
+                        ? {
+                            id: order.pickTask.id,
+                            status: order.pickTask.status,
+                            items: order.pickTask.items.map((i) => ({
+                              id: i.id,
+                              sku: i.variant.sku,
+                              name: i.variant.name,
+                              locationCode: i.locationCode,
+                              quantityRequired: i.quantityRequired,
+                              quantityPicked: i.quantityPicked,
+                            })),
+                          }
+                        : null
+                    }
+                    packTask={
+                      order.packTask
+                        ? {
+                            id: order.packTask.id,
+                            status: order.packTask.status,
+                            items: order.packTask.items.map((i) => ({
+                              id: i.id,
+                              sku: i.variant.sku,
+                              name: i.variant.name,
+                              quantityRequired: i.quantityRequired,
+                              quantityPacked: i.quantityPacked,
+                            })),
+                          }
+                        : null
+                    }
+                    latestLabel={
+                      latestLabel
+                        ? {
+                            id: latestLabel.id,
+                            trackingRef: latestLabel.trackingRef,
+                            printedAt: latestLabel.printedAt?.toISOString() ?? null,
+                          }
+                        : null
+                    }
+                  />
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-500">
+                  Scanner-driven picking/packing/labeling is a SCALE feature. Your current plan (
+                  {ctx.grit.tier}) marks fulfillment complete directly.
+                </p>
+              )}
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4">

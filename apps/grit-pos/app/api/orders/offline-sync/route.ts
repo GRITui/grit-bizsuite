@@ -389,7 +389,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       results,
-      order: order ? serializeOrder(order) : null,
+      order: order ? await serializeOrder(order) : null,
     });
   } catch (err) {
     return errorResponse(err);

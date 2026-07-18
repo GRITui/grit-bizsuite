@@ -22,12 +22,20 @@ const createProductSchema = z.object({
     .optional(),
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await requireApiSession();
+  // Grit BizSuite pivot: optional `?q=` search-by-name, used by the item
+  // groups admin (src/app/admin/groups) to find products to assign to a
+  // sub-group without pulling every product in the tenant.
+  const q = request.nextUrl.searchParams.get("q")?.trim();
   const products = await db.product.findMany({
-    where: { tenantId: session.tenantId },
+    where: {
+      tenantId: session.tenantId,
+      ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
+    },
     include: { variants: true },
     orderBy: { createdAt: "desc" },
+    ...(q ? { take: 25 } : {}),
   });
   return NextResponse.json({ products });
 }

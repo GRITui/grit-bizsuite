@@ -68,7 +68,7 @@ export async function PATCH(
 
     const updated = await findOrderForTenant(tenantId, orderId);
     if (!updated) throw new HttpError(500, "Failed to reload order after updating line");
-    return NextResponse.json({ order: serializeOrder(updated) });
+    return NextResponse.json({ order: await serializeOrder(updated) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -88,7 +88,7 @@ export async function DELETE(
 
     const updated = await findOrderForTenant(tenantId, orderId);
     if (!updated) throw new HttpError(500, "Failed to reload order after removing line");
-    return NextResponse.json({ order: serializeOrder(updated) });
+    return NextResponse.json({ order: await serializeOrder(updated) });
   } catch (err) {
     return errorResponse(err);
   }

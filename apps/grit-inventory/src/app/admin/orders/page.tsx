@@ -113,6 +113,7 @@ export default async function OrdersPage({
         <EmptyState message={q || status ? "No orders match this filter." : "No orders yet."} />
       ) : (
         <Card className="p-0">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
@@ -147,6 +148,7 @@ export default async function OrdersPage({
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 

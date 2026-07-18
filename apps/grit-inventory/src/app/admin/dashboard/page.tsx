@@ -10,11 +10,14 @@ export default async function DashboardPage() {
   const session = await requireSession();
   const { tenantId } = session;
 
-  const [productCount, activeVariants, pendingOrders, activeDeliveries, recentOrders] = await Promise.all([
+  const [productCount, storeStocks, pendingOrders, activeDeliveries, recentOrders] = await Promise.all([
     db.product.count({ where: { tenantId, isActive: true } }),
-    db.variant.findMany({
-      where: { tenantId, isActive: true },
-      include: { product: true },
+    // Per-store stock vs. its own reorder threshold — Variant.quantityOnHand
+    // is only the tenant-wide aggregate across stores, so checking it here
+    // would mask a critically low store behind a healthy one elsewhere.
+    db.storeStock.findMany({
+      where: { tenantId, variant: { isActive: true } },
+      include: { variant: { include: { product: true } }, store: true },
       orderBy: { quantityOnHand: "asc" },
     }),
     db.order.count({ where: { tenantId, status: { in: ["pending", "paid", "fulfilling"] } } }),
@@ -27,8 +30,8 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  const lowStockVariants = activeVariants
-    .filter((variant) => variant.quantityOnHand <= variant.reorderThreshold)
+  const lowStockVariants = storeStocks
+    .filter((stock) => stock.quantityOnHand <= stock.reorderThreshold)
     .slice(0, 5);
 
   const stats = [
@@ -76,19 +79,21 @@ export default async function DashboardPage() {
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Low stock</h2>
           <div className="mt-3 space-y-2">
             {lowStockVariants.length === 0 && <p className="text-sm text-zinc-500">Nothing below threshold.</p>}
-            {lowStockVariants.map((variant) => (
+            {lowStockVariants.map((stock) => (
               <div
-                key={variant.id}
+                key={stock.id}
                 className="flex items-center justify-between rounded-md border border-zinc-100 px-3 py-2 text-sm dark:border-zinc-800"
               >
                 <div>
                   <p className="font-medium text-zinc-900 dark:text-zinc-50">
-                    {variant.product.name} — {variant.name}
+                    {stock.variant.product.name} — {stock.variant.name}
                   </p>
-                  <p className="text-xs text-zinc-500">SKU {variant.sku}</p>
+                  <p className="text-xs text-zinc-500">
+                    SKU {stock.variant.sku} · {stock.store.name}
+                  </p>
                 </div>
                 <p className="font-mono text-sm text-red-600">
-                  {variant.quantityOnHand} / {variant.reorderThreshold}
+                  {stock.quantityOnHand} / {stock.reorderThreshold}
                 </p>
               </div>
             ))}

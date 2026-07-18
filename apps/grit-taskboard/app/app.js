@@ -2453,6 +2453,7 @@ async function adoptGuestData() {
   const uid = currentUser.id;
   let n = 0;
   const adoptedClients = [];
+  const adoptedOpsTasks = [];
   for (const s of BACKUP_STORES) {
     const rows = (await dbAll(s)).filter(r => r.uid === 'guest');
     for (const row of rows) {
@@ -2460,6 +2461,7 @@ async function adoptGuestData() {
       await dbPut(s, row);   // same id -> in-place ownership transfer, zero remap
       n++;
       if (s === 'clients') adoptedClients.push(row);
+      if (s === 'opsTasks') adoptedOpsTasks.push(row);
     }
   }
   const guestSettings = (await dbAll('settings')).filter(r => r.key.startsWith('guest:'));
@@ -2470,9 +2472,17 @@ async function adoptGuestData() {
   // Clients reach the server right away via the same idempotent bulk-upload
   // path enableCloudBackup() uses; every other adopted store mirrors on its
   // own next individual save, same as any other locally-made edit — no
-  // separate "adopted" upload path needed for those.
-  if (!isGuest && typeof SidekickBackend !== 'undefined' && SidekickBackend.isEnabled() && adoptedClients.length) {
-    SidekickBackend.migrateUpload(adoptedClients).catch(() => {});
+  // separate "adopted" upload path needed for those. opsTasks is the one
+  // exception: unlike jobs/invoices/etc, it's never re-pushed by a later
+  // save (advanceStatus/deleteTask only pushUpdate/opsTaskDelete an
+  // *existing* server-side row) and opsboard.js's pullFromServer() is
+  // pull-only, so an adopted card would otherwise never reach the server —
+  // push each one through the same per-id create path opsboard.js itself
+  // uses, so a later advance/delete on an adopted card targets a row that
+  // actually exists server-side.
+  if (!isGuest && typeof SidekickBackend !== 'undefined' && SidekickBackend.isEnabled()) {
+    if (adoptedClients.length) SidekickBackend.migrateUpload(adoptedClients).catch(() => {});
+    for (const row of adoptedOpsTasks) SidekickBackend.opsTaskCreate(row).catch(() => {});
   }
   await reload();
   toast(t('guest_adopt_done').replace('{n}', n));

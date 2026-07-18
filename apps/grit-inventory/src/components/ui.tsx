@@ -10,12 +10,12 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex items-start justify-between gap-4">
-      <div>
+    <div className="mb-6 flex items-start justify-between gap-4 max-sm:flex-col max-sm:items-stretch">
+      <div className="min-w-0">
         <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">{title}</h1>
         {description && <p className="mt-1 text-sm text-zinc-500">{description}</p>}
       </div>
-      {action}
+      {action && <div className="flex flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }

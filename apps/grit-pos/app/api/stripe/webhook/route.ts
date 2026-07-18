@@ -44,25 +44,36 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
     return;
   }
 
+  const amount = new Prisma.Decimal((session.amount_total ?? 0) / 100);
+
   // Idempotency: Stripe may redeliver the same event (or send both
   // checkout.session.completed and .async_payment_succeeded for the same
   // payment) — never double-record the payment or re-derive promisedAt.
-  const existingPayment = await prisma.payment.findFirst({
-    where: { stripePaymentIntentId: paymentIntentId },
-    select: { id: true },
-  });
-  if (existingPayment) return;
+  //
+  // stripePaymentIntentId has no DB-level unique constraint (unlike
+  // externalRef on the offline-sync path), so a plain check-then-act here
+  // would race: two concurrent deliveries for the same payment intent could
+  // both pass the "not found" check before either insert commits. A
+  // Postgres advisory lock keyed on the payment intent id — held for the
+  // rest of this transaction — serializes concurrent deliveries so the
+  // second one's re-check inside the lock reliably observes the first's
+  // committed Payment and skips creating a duplicate.
+  const outcome = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${paymentIntentId})::bigint)`;
 
-  const amount = new Prisma.Decimal((session.amount_total ?? 0) / 100);
+    const existingPayment = await tx.payment.findFirst({
+      where: { stripePaymentIntentId: paymentIntentId },
+      select: { id: true },
+    });
+    if (existingPayment) return { duplicate: true } as const;
 
-  await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { id: orderId },
       select: { id: true, status: true },
     });
     if (!order) {
       console.error("Stripe checkout.session references unknown order", orderId);
-      return;
+      return { duplicate: true } as const;
     }
 
     // Only advance a still-open order — don't clobber an order a staff
@@ -83,7 +94,14 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
         stripePaymentIntentId: paymentIntentId,
       },
     });
+
+    return { duplicate: false } as const;
   });
+
+  // A duplicate delivery (or a reference to an order that no longer exists)
+  // already had its transaction.completed published by the delivery that
+  // first recorded the payment — never re-derive/re-publish here.
+  if (outcome.duplicate) return;
 
   // Grit BizSuite events — the payment transaction above has committed, so
   // fire transaction.completed AFTER the webhook response when this payment

@@ -64,7 +64,7 @@ export default async function ReportsPage() {
         description="Sales, inventory, restock suggestions, and dead-stock."
         action={
           fifoCosting ? (
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <ExportLink href="/api/reports/cogs?format=csv" />
               <a
                 href="/api/reports/cogs"

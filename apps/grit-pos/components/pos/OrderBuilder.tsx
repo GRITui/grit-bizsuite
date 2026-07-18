@@ -158,9 +158,9 @@ export default function OrderBuilder({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 p-4 md:flex-row md:p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-row gap-4 p-6 max-md:flex-col max-md:p-4">
       {/* Catalog */}
-      <div className="flex flex-1 flex-col gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold">
@@ -204,13 +204,13 @@ export default function OrderBuilder({
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-2">
           {activeCategory?.products.map((product) => (
             <button
               key={product.id}
               disabled={!editable}
               onClick={() => handleProductTap(product)}
-              className="flex flex-col items-start gap-1 rounded-lg border border-zinc-200 p-3 text-left disabled:opacity-50 dark:border-zinc-800"
+              className="flex min-w-0 flex-col items-start gap-1 rounded-lg border border-zinc-200 p-3 text-left disabled:opacity-50 dark:border-zinc-800"
             >
               <span className="text-sm font-medium">{product.name}</span>
               <span className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -227,7 +227,7 @@ export default function OrderBuilder({
       </div>
 
       {/* Cart */}
-      <div className="flex w-full flex-col gap-4 rounded-lg border border-zinc-200 p-4 md:w-80 dark:border-zinc-800">
+      <div className="flex w-80 shrink-0 flex-col gap-4 rounded-lg border border-zinc-200 p-4 max-md:w-full dark:border-zinc-800">
         <h2 className="text-lg font-semibold">Cart</h2>
         {queuedNotice && (
           <p className="rounded bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">

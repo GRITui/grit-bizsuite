@@ -62,6 +62,11 @@ export default async function TransfersPage() {
         title="Transfers"
         description="Draft → dispatch (source decremented) → receive (destination incremented). Cancelling an in-transit transfer restores the source."
       />
+      {/* TransfersManager (src/components/transfers-manager.tsx) renders its
+          own table markup and is outside this pass's assigned scope; wrap the
+          mount point so its table still gets horizontal scroll on narrow
+          screens. */}
+      <div className="overflow-x-auto">
       <TransfersManager
         transfers={transfers.map((t) => ({
           id: t.id,
@@ -83,6 +88,7 @@ export default async function TransfersPage() {
           productName: v.product.name,
         }))}
       />
+      </div>
     </div>
   );
 }

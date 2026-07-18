@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { requireTenantId } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/app/generated/prisma/client";
 import {
   OrderChannel,
   OrderStatus,
@@ -78,6 +79,25 @@ interface CompletedPublish {
 
 function rejected(externalRef: string, error: string): SyncResult {
   return { externalRef, status: "rejected", error };
+}
+
+/**
+ * True for a Postgres unique-constraint violation (P2002) — the outcome of
+ * losing the check-then-act race against a concurrent request replaying the
+ * same externalRef (see the pre-insert dedupe in POST below). Callers should
+ * treat this as "duplicate", not a hard failure.
+ */
+function isUniqueConstraintError(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+}
+
+/** Looks up the order a given externalRef's Payment already settled onto. */
+async function findDuplicateOrderId(externalRef: string): Promise<string | undefined> {
+  const dup = await prisma.payment.findUnique({
+    where: { externalRef },
+    select: { orderId: true },
+  });
+  return dup?.orderId;
 }
 
 function collectEventLines(order: OrderWithRelations): CompletedOrderLine[] {
@@ -165,6 +185,9 @@ async function applyTenderOp(
     });
   } catch (err) {
     if (err instanceof HttpError) return rejected(externalRef, err.message);
+    if (isUniqueConstraintError(err)) {
+      return { externalRef, status: "duplicate", orderId: await findDuplicateOrderId(externalRef) };
+    }
     throw err;
   }
 
@@ -248,32 +271,40 @@ async function applyQuickSaleOp(
   const subtotal = sumDecimals(preparedLines.map((l) => l.lineTotal));
   const isFullyPaid = amount.greaterThanOrEqualTo(subtotal);
 
-  const created = await prisma.order.create({
-    data: {
-      tenantId,
-      channel: OrderChannel.dine_in,
-      status: isFullyPaid ? OrderStatus.closed : OrderStatus.tendered,
-      lines: {
-        create: preparedLines.map((line) => ({
-          productId: line.productId,
-          variantId: line.variantId,
-          quantity: line.quantity,
-          unitPrice: line.unitPrice,
-          lineTotal: line.lineTotal,
-          addOns: { create: line.addOns },
-        })),
-      },
-      payments: {
-        create: {
-          tenderType: TenderType.cash,
-          amount,
-          status: PaymentStatus.succeeded,
-          externalRef,
+  let created: { id: string };
+  try {
+    created = await prisma.order.create({
+      data: {
+        tenantId,
+        channel: OrderChannel.dine_in,
+        status: isFullyPaid ? OrderStatus.closed : OrderStatus.tendered,
+        lines: {
+          create: preparedLines.map((line) => ({
+            productId: line.productId,
+            variantId: line.variantId,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            lineTotal: line.lineTotal,
+            addOns: { create: line.addOns },
+          })),
+        },
+        payments: {
+          create: {
+            tenderType: TenderType.cash,
+            amount,
+            status: PaymentStatus.succeeded,
+            externalRef,
+          },
         },
       },
-    },
-    select: { id: true },
-  });
+      select: { id: true },
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      return { externalRef, status: "duplicate", orderId: await findDuplicateOrderId(externalRef) };
+    }
+    throw err;
+  }
 
   if (isFullyPaid) {
     completed.push({

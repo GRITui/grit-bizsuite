@@ -49,35 +49,71 @@ export async function checkVelocitySurge(tenantId: string): Promise<void> {
     const { windowMinutes, threshold } = surgeConfig();
     const windowStart = new Date(Date.now() - windowMinutes * 60_000);
 
-    const transactionsInWindow = await prisma.order.count({
-      where: {
-        tenantId,
-        status: OrderStatus.closed,
-        updatedAt: { gte: windowStart },
-      },
-    });
-    if (transactionsInWindow < threshold) return;
-
     // Envelope organization_id is the raw tenant id (opaque text in the
     // outbox — see lib/events.ts).
     const organizationId = tenantId;
-    const alreadyEmitted = await prisma.eventOutbox.count({
-      where: {
-        eventName: "pos.velocity_surge",
-        organizationId,
-        createdAt: { gte: windowStart },
-      },
-    });
-    if (alreadyEmitted > 0) return;
 
-    const data: PosVelocitySurgeData = {
-      // No Location model yet — the tenant is the location (see lib/events.ts).
-      location_id: tenantId,
-      transactions_in_window: transactionsInWindow,
-      window_minutes: windowMinutes,
-      threshold,
-    };
-    await bus.publish(buildEvent("pos.velocity_surge", organizationId, data));
+    // Window dedupe is a check-then-act (count transactions, count
+    // already-emitted surge events, then decide to publish), and unlike
+    // externalRef/stripePaymentIntentId there's no natural DB column to put
+    // a unique constraint on — the window is a sliding range, not a
+    // discrete value. A Postgres advisory lock keyed on the tenant id,
+    // held for this whole transaction (including the outbox insert, done
+    // directly here on the SAME locked connection rather than through
+    // bus.publish's own pool connection), serializes concurrent callers for
+    // the same tenant so only one can win the "not yet emitted" check per
+    // window.
+    const built = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId})::bigint)`;
+
+      const transactionsInWindow = await tx.order.count({
+        where: {
+          tenantId,
+          status: OrderStatus.closed,
+          updatedAt: { gte: windowStart },
+        },
+      });
+      if (transactionsInWindow < threshold) return null;
+
+      const alreadyEmitted = await tx.eventOutbox.count({
+        where: {
+          eventName: "pos.velocity_surge",
+          organizationId,
+          createdAt: { gte: windowStart },
+        },
+      });
+      if (alreadyEmitted > 0) return null;
+
+      const data: PosVelocitySurgeData = {
+        // No Location model yet — the tenant is the location (see lib/events.ts).
+        location_id: tenantId,
+        transactions_in_window: transactionsInWindow,
+        window_minutes: windowMinutes,
+        threshold,
+      };
+      const event = buildEvent("pos.velocity_surge", organizationId, data);
+
+      // Mirrors lib/events.ts's prismaOutboxStore().save() exactly, but run
+      // on the same locked transaction as the checks above.
+      await tx.eventOutbox.create({
+        data: {
+          eventId: event.event_id,
+          eventName: event.event,
+          organizationId: event.organization_id,
+          payload: event as unknown as object,
+          createdAt: new Date(event.timestamp),
+        },
+      });
+
+      return event;
+    });
+
+    if (!built) return;
+
+    // Local listeners + webhook delivery, outside the lock. The store.save()
+    // inside bus.publish() re-runs against the row already inserted above
+    // (it's an upsert with `update: {}`) — a harmless no-op.
+    await bus.publish(built);
   } catch (err) {
     // Surge detection must never break checkout.
     console.error("Failed velocity-surge check", tenantId, err);

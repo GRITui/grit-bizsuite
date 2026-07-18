@@ -90,7 +90,8 @@ export default async function handler(request) {
     inventoryResult.ok && Array.isArray(inventoryBody.rows) ? inventoryBody.rows.length : 0;
 
   const marginTotal = Number((revenueTotal - cogsTotal).toFixed(2));
-  const marginPct = revenueTotal > 0 ? Number(((marginTotal / revenueTotal) * 100).toFixed(2)) : 0;
+  const marginPct =
+    revenueTotal !== 0 ? Number(((marginTotal / revenueTotal) * 100).toFixed(2)) : null;
 
   // Daily series is only as good as the POS side — inventory COGS has no
   // per-day breakdown (see route.ts), so daily cogs/margin stay null rather

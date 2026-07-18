@@ -65,7 +65,7 @@ export default async function ProductsPage({
             : "Manage catalog and stock levels. Scan a barcode to jump to its product."
         }
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               href={`${inactiveHref}${storeQuery}`}
               className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -114,6 +114,7 @@ export default async function ProductsPage({
         />
       ) : (
         <Card className="p-0">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
@@ -163,6 +164,7 @@ export default async function ProductsPage({
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

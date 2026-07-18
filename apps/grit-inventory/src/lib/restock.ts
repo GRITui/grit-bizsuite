@@ -7,15 +7,18 @@ import type { PrismaClient } from "@/generated/prisma/client";
  * the admin dashboard already uses.
  */
 export async function checkRestockAlerts(db: PrismaClient): Promise<{ alertCount: number }> {
-  const variants = await db.variant.findMany({
-    where: { isActive: true },
-    include: { product: true },
+  // Check per-store stock against its own threshold — Variant.quantityOnHand
+  // is only the tenant-wide aggregate across stores, so a critically low
+  // store can hide behind a healthy one elsewhere and never alert.
+  const storeStocks = await db.storeStock.findMany({
+    where: { variant: { isActive: true } },
+    include: { variant: { include: { product: true } }, store: true },
   });
-  const belowThreshold = variants.filter((v) => v.quantityOnHand <= v.reorderThreshold);
+  const belowThreshold = storeStocks.filter((s) => s.quantityOnHand <= s.reorderThreshold);
 
-  for (const variant of belowThreshold) {
+  for (const stock of belowThreshold) {
     console.log(
-      `[restock-alert] tenant=${variant.tenantId} sku=${variant.sku} product="${variant.product.name}" onHand=${variant.quantityOnHand} threshold=${variant.reorderThreshold}`
+      `[restock-alert] tenant=${stock.tenantId} store=${stock.store.name} sku=${stock.variant.sku} product="${stock.variant.product.name}" onHand=${stock.quantityOnHand} threshold=${stock.reorderThreshold}`
     );
   }
 

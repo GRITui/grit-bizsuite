@@ -106,6 +106,7 @@ export async function verifySessionToken(token) {
     return null;
   }
   if (!valid) return null;
+  if (!payload || typeof payload !== "object") return null;
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (typeof payload.exp === "number" && nowSeconds >= payload.exp) return null;

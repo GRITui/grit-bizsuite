@@ -153,22 +153,37 @@ export interface OfflineSyncResult {
   error?: string;
 }
 
+// Must not exceed the server's own cap (app/api/orders/offline-sync/route.ts
+// MAX_OPS_PER_SYNC) — otherwise a queue that grows past the limit would get
+// a 400 on every retry forever, since the client never chunks and the
+// server rejects the whole oversized batch before touching any op.
+const MAX_OPS_PER_SYNC = 100;
+
 /**
  * Replays every queued op (in capture order) against the idempotent sync
  * endpoint, then drops the ops the server settled (applied, duplicate, or
  * permanently rejected — a rejected op can never succeed by retrying).
  * Network failures leave the queue untouched for the next attempt.
+ *
+ * Sent in chunks of at most MAX_OPS_PER_SYNC so a queue that grew past the
+ * server's per-request cap can still make progress; a failure on one chunk
+ * stops further chunks and leaves the rest of the queue for the next retry.
  * Returns the number of ops that remain queued.
  */
 export async function syncOfflineQueue(): Promise<number> {
   const ops = await listOps();
   if (ops.length === 0) return 0;
 
-  const data = await request<{ results: OfflineSyncResult[] }>("/api/orders/offline-sync", {
-    method: "POST",
-    body: JSON.stringify({ ops }),
-  });
-  const settled = data.results.map((r) => r.externalRef);
-  await removeOps(settled);
-  return ops.length - settled.length;
+  let remaining = ops.length;
+  for (let i = 0; i < ops.length; i += MAX_OPS_PER_SYNC) {
+    const chunk = ops.slice(i, i + MAX_OPS_PER_SYNC);
+    const data = await request<{ results: OfflineSyncResult[] }>("/api/orders/offline-sync", {
+      method: "POST",
+      body: JSON.stringify({ ops: chunk }),
+    });
+    const settled = data.results.map((r) => r.externalRef);
+    await removeOps(settled);
+    remaining -= settled.length;
+  }
+  return remaining;
 }

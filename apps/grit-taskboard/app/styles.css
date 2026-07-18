@@ -581,6 +581,31 @@ select option{background:var(--select-option-bg);color:var(--select-option-fg);}
 .tl-flag{position:absolute;top:8px;font-size:14px;line-height:1;color:var(--overdue);}
 .tl-flag.done{opacity:.4;color:var(--text3);}
 
+/* ── Ops board (kanban) ───────────────────────────────────────────────
+   Mobile-first: horizontally-scrollable columns (each ~76% viewport wide,
+   the classic "peek at the next column" mobile kanban pattern). These were
+   inline styles on the generated markup (opsboard.js); pulled into classes
+   here so the min-width:900px tier below can override layout-critical
+   properties — inline styles would out-specificity any override attempt. */
+.ops-add-btn{width:100%;margin:0 0 16px;}
+.ops-cols{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;margin:0 -20px;padding-left:20px;padding-right:20px;}
+.ops-col{flex:0 0 76%;max-width:300px;min-width:220px;}
+.ops-col-head{font-size:12px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;padding:0 2px 8px;}
+.ops-col-count{color:var(--text4);}
+.ops-col-cards{display:flex;flex-direction:column;gap:8px;min-height:40px;}
+.ops-col-empty{border:1px dashed var(--border-mid);border-radius:var(--radius-sm);padding:14px;text-align:center;color:var(--text4);font-size:12px;}
+@media (min-width:900px){
+  /* Real kanban: all 4 status columns side by side, no horizontal scroll.
+     Let the board use the full width of its grid column (the sidebar-nav
+     tier below already bounds body at 1120px) instead of the generic
+     760px .content cap used by narrower single-column screens. */
+  #s-opsboard .content{max-width:none;}
+  .ops-add-btn{width:auto;min-width:180px;}
+  .ops-cols{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;overflow-x:visible;margin:0;padding:0;}
+  .ops-col{flex:none;max-width:none;min-width:0;}
+  .ops-col-cards{min-height:120px;}
+}
+
 /* ── Lost-deal exit + options list (2026-07-16) ─────────────────────────── */
 /* Completed-as-lost badge: same shape as .pl-done, danger-toned. */
 .pl-done.pl-lost{color:var(--overdue);background:color-mix(in srgb,var(--overdue) 12%,var(--card));}

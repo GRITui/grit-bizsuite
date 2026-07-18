@@ -43,17 +43,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   const { stockAdjustment, ...fields } = parsed.data;
 
-  if (stockAdjustment?.storeId) {
-    const store = await db.store.findFirst({
-      where: { id: stockAdjustment.storeId, tenantId: session.tenantId },
-    });
-    if (!store) return apiError("Store not found", 404);
-    try {
-      assertStoreAccess(ctx.grit, store);
-    } catch (err) {
-      const res = entitlementResponse(err);
-      if (res) return res;
-      throw err;
+  if (stockAdjustment) {
+    // Gate the store the adjustment will actually land on — explicit
+    // `storeId`, or the session's store when omitted (applyStockMovement
+    // falls back to it below). Only skipping the check entirely when neither
+    // is set (falls through to the tenant default store, always accessible).
+    const targetStoreId = stockAdjustment.storeId ?? session.storeId;
+    if (targetStoreId) {
+      const store = await db.store.findFirst({
+        where: { id: targetStoreId, tenantId: session.tenantId },
+      });
+      if (!store) return apiError("Store not found", 404);
+      try {
+        assertStoreAccess(ctx.grit, store);
+      } catch (err) {
+        const res = entitlementResponse(err);
+        if (res) return res;
+        throw err;
+      }
     }
   }
 

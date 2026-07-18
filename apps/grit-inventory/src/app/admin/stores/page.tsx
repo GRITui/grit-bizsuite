@@ -44,7 +44,12 @@ export default async function StoresPage() {
         title="Stores"
         description="Locations holding stock. The default store receives all operations that don't name a store; it cannot be deleted."
       />
-      <StoresManager stores={stores} />
+      {/* StoresManager (src/components/stores-manager.tsx) renders its own table
+          markup and is outside this pass's assigned scope; wrap the mount
+          point so its table still gets horizontal scroll on narrow screens. */}
+      <div className="overflow-x-auto">
+        <StoresManager stores={stores} />
+      </div>
     </div>
   );
 }

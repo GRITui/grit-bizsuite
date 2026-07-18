@@ -39,6 +39,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <div className="p-4">
               <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Line items</h2>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <tbody>
                 {order.lines.map((line) => (
@@ -58,6 +59,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 </tr>
               </tbody>
             </table>
+            </div>
           </Card>
 
           <Card>

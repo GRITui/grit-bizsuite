@@ -70,6 +70,21 @@ export async function transitionOrder(
   if (params.to === "cancelled" && order.status === "fulfilling") {
     for (const line of order.lines) {
       if (!line.variantId) continue;
+      // Reverse the FIFO consumption recorded by the original fulfillment
+      // movement for this line before restocking. Without this, the
+      // consumption rows stay in place and /api/reports/cogs (which sums
+      // every StockLotConsumption except transfer_out) keeps counting the
+      // cancelled sale's cost as sold, permanently double-counting COGS —
+      // the restock below creates a fresh lot for the returned quantity, so
+      // deleting these (rather than trying to restore the original lots,
+      // which may have been further drained since) keeps total lot quantity
+      // consistent with actual stock on hand.
+      await tx.stockLotConsumption.deleteMany({
+        where: {
+          tenantId: params.tenantId,
+          movement: { orderLineId: line.id, reason: "order_fulfillment" },
+        },
+      });
       await applyStockMovement(tx, {
         tenantId: params.tenantId,
         storeId: params.storeId,

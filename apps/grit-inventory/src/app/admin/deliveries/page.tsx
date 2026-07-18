@@ -22,6 +22,7 @@ export default async function DeliveriesPage() {
         <EmptyState message="No deliveries yet — deliveries are created automatically when an order is marked fulfilled." />
       ) : (
         <Card className="p-0">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
@@ -53,6 +54,7 @@ export default async function DeliveriesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

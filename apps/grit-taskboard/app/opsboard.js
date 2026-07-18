@@ -59,6 +59,26 @@
     return i < 0 ? 0 : i;
   }
 
+  // Per-id push queue: pushCreate/pushUpdate for the SAME task id are
+  // chained onto one another so an update can never reach the server ahead
+  // of that task's own create — without this, "save then immediately
+  // advance" fires an unordered POST and PUT that can arrive out of order,
+  // 404ing the PUT (see api/ops-tasks.js's PUT: 404 when no row matches
+  // `id` yet) and having it silently swallowed by the .catch(() => {})
+  // below. Different ids never block each other. `pendingCreateIds` tracks
+  // ids whose create hasn't been confirmed synced yet, so pullFromServer's
+  // deletion pass (below) doesn't mistake a not-yet-uploaded new card for a
+  // server-side delete.
+  const pendingPush = new Map(); // id -> promise chain
+  const pendingCreateIds = new Set();
+
+  function chainPush(id, fn) {
+    const prev = pendingPush.get(id) || Promise.resolve();
+    const next = prev.then(fn, fn).catch(() => {});
+    pendingPush.set(id, next);
+    return next;
+  }
+
   // ── Sync: pull-on-open (server wins), best-effort push on mutation ──────
   async function pullFromServer() {
     if (!backendReady()) return;
@@ -66,8 +86,20 @@
       const { ok, rows } = await SidekickBackend.opsTasksList();
       if (!ok) return;
       const uid = uidNow();
+      const serverIds = new Set(rows.map(r => r.id));
       for (const row of rows) {
         await dbPut(STORE, { ...row, uid });
+      }
+      // Server wins on absence too, not just on content: a row that's gone
+      // server-side (deleted from another device/session) must not linger
+      // here forever as a zombie card. Skip any id whose create is still
+      // in flight from this session — it just hasn't reached the server
+      // yet, it wasn't deleted.
+      const localRows = (await dbAll(STORE)).filter(r => r.uid === uid);
+      for (const row of localRows) {
+        if (!serverIds.has(row.id) && !pendingCreateIds.has(row.id)) {
+          await dbDel(STORE, row.id);
+        }
       }
     } catch (e) {
       console.error('opsboard pull failed', e);
@@ -76,11 +108,13 @@
 
   async function pushCreate(task) {
     if (!backendReady()) return;
-    SidekickBackend.opsTaskCreate(task).catch(() => {});
+    pendingCreateIds.add(task.id);
+    await chainPush(task.id, () => SidekickBackend.opsTaskCreate(task));
+    pendingCreateIds.delete(task.id);
   }
   async function pushUpdate(id, patch) {
     if (!backendReady()) return;
-    SidekickBackend.opsTaskUpdate(id, patch).catch(() => {});
+    chainPush(id, () => SidekickBackend.opsTaskUpdate(id, patch));
   }
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -99,19 +133,19 @@
     const uid = uidNow();
     const all = (await dbAll(STORE)).filter(r => r.uid === uid);
 
-    const addBtn = `<button type="button" id="ops-add-btn" class="btn-submit" style="width:100%;margin:0 0 16px">+ New task</button>`;
+    const addBtn = `<button type="button" id="ops-add-btn" class="btn-submit ops-add-btn">+ New task</button>`;
 
-    const columnsHtml = `<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;margin:0 -20px;padding-left:20px;padding-right:20px">
+    const columnsHtml = `<div class="ops-cols">
       ${COLUMNS.map(col => {
         const cards = all.filter(t => t.status === col.status)
           .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
         return `
-        <div style="flex:0 0 76%;max-width:300px;min-width:220px">
-          <div style="font-size:12px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;padding:0 2px 8px">
-            ${esc(col.label)} <span style="color:var(--text4)">(${cards.length})</span>
+        <div class="ops-col">
+          <div class="ops-col-head">
+            ${esc(col.label)} <span class="ops-col-count">(${cards.length})</span>
           </div>
-          <div style="display:flex;flex-direction:column;gap:8px;min-height:40px">
-            ${cards.length ? cards.map(t => cardHtml(t)).join('') : `<div style="border:1px dashed var(--border-mid);border-radius:var(--radius-sm);padding:14px;text-align:center;color:var(--text4);font-size:12px">No cards</div>`}
+          <div class="ops-col-cards">
+            ${cards.length ? cards.map(t => cardHtml(t)).join('') : `<div class="ops-col-empty">No cards</div>`}
           </div>
         </div>`;
       }).join('')}
@@ -187,7 +221,7 @@
     if (!t || t.uid !== uidNow()) return;
     if (!confirm('Delete this task? This cannot be undone.')) return;
     await dbDel(STORE, id);
-    if (backendReady()) SidekickBackend.opsTaskDelete(id).catch(() => {});
+    if (backendReady()) chainPush(id, () => SidekickBackend.opsTaskDelete(id));
     toast('Task deleted');
     await paint();
   }

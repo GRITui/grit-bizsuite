@@ -7,8 +7,24 @@ import { PrismaClient } from "../src/generated/prisma/client";
 
 neonConfig.webSocketConstructor = ws;
 
-const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
-const db = new PrismaClient({ adapter });
+// Local dev: a localhost DATABASE_URL (plain Postgres) can't use the Neon
+// websocket driver — fall back to node-postgres, same as src/lib/db.ts.
+function makeAdapter() {
+  const connectionString = process.env.DATABASE_URL;
+  try {
+    const host = new URL(connectionString ?? "").hostname;
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { PrismaPg } = require("@prisma/adapter-pg") as { PrismaPg: typeof PrismaNeon };
+      return new PrismaPg({ connectionString: connectionString! });
+    }
+  } catch {
+    // fall through to Neon adapter, which will surface the real error
+  }
+  return new PrismaNeon({ connectionString });
+}
+
+const db = new PrismaClient({ adapter: makeAdapter() });
 
 async function main() {
   const tenant = await db.tenant.upsert({

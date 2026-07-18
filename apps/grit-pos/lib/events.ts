@@ -1,7 +1,13 @@
 import "server-only";
 
-import { GritEventBus, buildEvent, type TransactionCompletedData } from "@grit/shared-events";
-import { createNeonOutboxStore } from "@grit/database";
+import {
+  GritEventBus,
+  buildEvent,
+  type GritEvent,
+  type OutboxStore,
+  type TransactionCompletedData,
+} from "@grit/shared-events";
+import { prisma } from "@/lib/prisma";
 
 // ---------------------------------------------------------------------------
 // Outbound Grit BizSuite events (transaction.completed, pos.velocity_surge).
@@ -25,10 +31,47 @@ let cachedBus: GritEventBus | null | undefined;
 export function getEventBus(): GritEventBus | null {
   if (cachedBus !== undefined) return cachedBus;
   const databaseUrl = process.env.DATABASE_URL;
-  cachedBus = databaseUrl
-    ? new GritEventBus({ store: createNeonOutboxStore(databaseUrl) })
-    : null;
+  cachedBus = databaseUrl ? new GritEventBus({ store: prismaOutboxStore() }) : null;
   return cachedBus;
+}
+
+/**
+ * Outbox store backed by this app's own Prisma client (EventOutbox model →
+ * event_outbox table, canonical @grit/database shape). One DB driver
+ * everywhere: the Neon adapter on deploys, the node-postgres fallback in
+ * local dev — instead of the package's separate Neon-HTTP store, which
+ * cannot reach a plain local Postgres.
+ */
+function prismaOutboxStore(): OutboxStore {
+  return {
+    async save(event: GritEvent) {
+      await prisma.eventOutbox.upsert({
+        where: { eventId: event.event_id },
+        update: {},
+        create: {
+          eventId: event.event_id,
+          eventName: event.event,
+          organizationId: event.organization_id,
+          payload: event as unknown as object,
+          createdAt: new Date(event.timestamp),
+        },
+      });
+    },
+    async markDelivered(eventId: string) {
+      await prisma.eventOutbox.updateMany({
+        where: { eventId },
+        data: { deliveredAt: new Date() },
+      });
+    },
+    async listUndelivered(limit: number) {
+      const rows = await prisma.eventOutbox.findMany({
+        where: { deliveredAt: null },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+      });
+      return rows.map((r) => r.payload as unknown as GritEvent);
+    },
+  };
 }
 
 /** Item shape the publisher needs from an order's lines. */

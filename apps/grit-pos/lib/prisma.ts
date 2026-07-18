@@ -13,11 +13,32 @@ neonConfig.webSocketConstructor = ws;
 
 const connectionString = process.env.DATABASE_URL;
 
+// Local dev fallback: the Neon serverless driver only speaks to Neon's
+// websocket proxy, so a localhost/127.0.0.1 DATABASE_URL (plain Postgres)
+// uses the node-postgres adapter instead. Deploys targeting Neon are
+// unaffected; @prisma/adapter-pg resolves from the workspace root in dev.
+function isLocalPostgres(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function createPrismaClient() {
   if (!connectionString) {
     throw new Error(
       "DATABASE_URL is not set. Copy .env.example to .env and fill in a real Neon connection string.",
     );
+  }
+
+  if (isLocalPostgres(connectionString)) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PrismaPg } = require("@prisma/adapter-pg") as {
+      PrismaPg: typeof PrismaNeon;
+    };
+    return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   }
 
   const adapter = new PrismaNeon({ connectionString });

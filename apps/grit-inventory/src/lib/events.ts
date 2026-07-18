@@ -4,6 +4,7 @@ import type {
   InventoryThresholdBreachedData,
   InventoryTransferCompletedData,
 } from "@grit/shared-events/contracts";
+import { db } from "@/lib/db";
 
 /**
  * Outbound event publishing for grit-inventory, built on @grit/shared-events
@@ -60,10 +61,46 @@ const sharedEvents = require("@grit/shared-events") as {
     now?: Date
   ) => GritEvent;
 };
-const gritDatabase = require("@grit/database") as {
-  createNeonOutboxStore: (sqlUrl: string) => OutboxStoreLike;
-};
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+/**
+ * Outbox store backed by this app's own Prisma client (EventOutbox model →
+ * event_outbox table, canonical @grit/database shape). Reusing the app's
+ * client means one DB driver everywhere — Neon adapter on deploys, the
+ * node-postgres fallback in local dev — instead of the package's separate
+ * Neon-HTTP store, which can't reach a plain local Postgres.
+ */
+function prismaOutboxStore(): OutboxStoreLike {
+  return {
+    async save(event) {
+      await db.eventOutbox.upsert({
+        where: { eventId: event.event_id },
+        update: {},
+        create: {
+          eventId: event.event_id,
+          eventName: event.event,
+          organizationId: event.organization_id,
+          payload: event as unknown as object,
+          createdAt: new Date(event.timestamp),
+        },
+      });
+    },
+    async markDelivered(eventId) {
+      await db.eventOutbox.updateMany({
+        where: { eventId },
+        data: { deliveredAt: new Date() },
+      });
+    },
+    async listUndelivered(limit) {
+      const rows = await db.eventOutbox.findMany({
+        where: { deliveredAt: null },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+      });
+      return rows.map((r) => r.payload as unknown as GritEvent);
+    },
+  };
+}
 
 function safeOutboxStore(inner: OutboxStoreLike): OutboxStoreLike {
   return {
@@ -99,9 +136,7 @@ export function getEventBus(): GritEventBusLike {
   if (!bus) {
     const databaseUrl = process.env.DATABASE_URL;
     bus = new sharedEvents.GritEventBus({
-      store: databaseUrl
-        ? safeOutboxStore(gritDatabase.createNeonOutboxStore(databaseUrl))
-        : undefined,
+      store: databaseUrl ? safeOutboxStore(prismaOutboxStore()) : undefined,
     });
   }
   return bus;

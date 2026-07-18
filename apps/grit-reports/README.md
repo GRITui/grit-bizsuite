@@ -83,14 +83,18 @@ app keeps working standalone.
 POS revenue minus inventory FIFO COGS over `[from, to]` (dates default to
 the last 30 days when omitted or unparsable).
 
-- `GET {GRIT_POS_URL}/api/reports/revenue?from&to` — grit-pos's revenue
-  report. **May not exist upstream yet**; a 404/network error just zeroes
-  the revenue side (`upstream.pos = "missing"`).
-- `GET {GRIT_INVENTORY_URL}/api/reports/cogs?from&to&format=json` — grit-
-  inventory's FIFO COGS report (exists today: `apps/grit-inventory/src/app/
+- `GET {GRIT_POS_URL}/api/reports/revenue?from&to&organization_id=<session.organizationId>`
+  — grit-pos's revenue report. **May not exist upstream yet**; a 404/network
+  error just zeroes the revenue side (`upstream.pos = "missing"`).
+- `GET {GRIT_INVENTORY_URL}/api/reports/cogs?from&to&format=json&organization_id=<session.organizationId>`
+  — grit-inventory's FIFO COGS report (exists today: `apps/grit-inventory/src/app/
   api/reports/cogs/route.ts`). Response is `{ from, to, total_cogs, rows: [{
   sku, product, variant, units_consumed, fifo_cogs, avg_unit_cost,
   fallback_units }] }` — a **period total only**, no daily breakdown.
+  `organization_id` is required on both calls: each upstream's
+  service-token auth path scopes strictly off that query param (no session
+  of its own); omitting it 401s and permanently zeroes that side of the
+  aggregate.
 
 Response:
 

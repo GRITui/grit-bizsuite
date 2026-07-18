@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertFeature } from "@grit/passport";
+import { assertFeature, type GritSession } from "@grit/passport";
 import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { csvResponse } from "@/lib/csv";
 import { daysAgo } from "@/lib/format";
-import { entitlementResponse, requireGritContext } from "@/lib/passport";
+import { entitlementResponse, normalizeTier, requireGritContext } from "@/lib/passport";
 
 /**
  * GET /api/reports/cogs?from&to[&format=csv] — FIFO cost of goods sold per
@@ -14,10 +14,69 @@ import { entitlementResponse, requireGritContext } from "@/lib/passport";
  * Rows with `lotId = null` are fallback-costed consumption (no open lot at
  * drain time) and are included, reported via `fallback_units`.
  */
+/**
+ * Service-to-service auth (grit-reports' margin aggregator): a bearer token
+ * timing-safe-equal to GRIT_SERVICE_TOKEN, scoped by ?organization_id=
+ * (tenant id equality, same convention as grit-pos /api/reports/revenue).
+ * With GRIT_SERVICE_TOKEN unset, any bearer header is rejected outright —
+ * it never falls through to the cookie-session path.
+ */
+async function resolveServiceContext(
+  request: NextRequest
+): Promise<{ tenantId: string; grit: GritSession } | null | "unauthorized"> {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader === null) return null;
+  const serviceToken = process.env.GRIT_SERVICE_TOKEN;
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!serviceToken || !bearer || !timingSafeEqualStr(bearer, serviceToken)) {
+    return "unauthorized";
+  }
+  const tenantId = request.nextUrl.searchParams.get("organization_id");
+  if (!tenantId) return "unauthorized";
+  const tenant = await db.tenant.findUnique({
+    where: { id: tenantId },
+    select: { tier: true, addons: true },
+  });
+  if (!tenant) return "unauthorized";
+  return {
+    tenantId,
+    grit: {
+      userId: "service:grit-reports",
+      organizationId: tenantId,
+      locationId: null,
+      role: "owner",
+      email: "service@grit.internal",
+      tier: normalizeTier(tenant.tier),
+      addons: tenant.addons ?? [],
+    },
+  };
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 export async function GET(request: NextRequest) {
-  const ctx = await requireGritContext();
+  let grit: GritSession;
+  let tenantId: string;
+
+  const service = await resolveServiceContext(request);
+  if (service === "unauthorized") {
+    return apiError("Unauthenticated", 401);
+  } else if (service) {
+    grit = service.grit;
+    tenantId = service.tenantId;
+  } else {
+    const ctx = await requireGritContext();
+    grit = ctx.grit;
+    tenantId = ctx.local.tenantId;
+  }
+
   try {
-    assertFeature(ctx.grit, "inventory.fifo_costing");
+    assertFeature(grit, "inventory.fifo_costing");
   } catch (err) {
     const res = entitlementResponse(err);
     if (res) return res;
@@ -32,11 +91,17 @@ export async function GET(request: NextRequest) {
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
     return apiError("Invalid from/to date");
   }
+  // Half-open [from, to+1day) so a bare "YYYY-MM-DD" `to` (parsed at
+  // midnight) still includes consumption recorded later that same day —
+  // matches the convention in grit-pos's /api/reports/revenue.
+  const toExclusive = toParam
+    ? new Date(to.getTime() + 24 * 60 * 60 * 1000)
+    : to;
 
   const consumptions = await db.stockLotConsumption.findMany({
     where: {
-      tenantId: ctx.local.tenantId,
-      createdAt: { gte: from, lte: to },
+      tenantId,
+      createdAt: { gte: from, lt: toExclusive },
     },
     include: {
       movement: { select: { reason: true } },

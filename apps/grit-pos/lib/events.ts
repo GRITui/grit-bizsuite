@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { GritEventBus, buildEvent, type TransactionCompletedData } from "@grit/shared-events";
 import { createNeonOutboxStore } from "@grit/database";
 
@@ -30,28 +29,6 @@ export function getEventBus(): GritEventBus | null {
     ? new GritEventBus({ store: createNeonOutboxStore(databaseUrl) })
     : null;
   return cachedBus;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Envelope `organization_id` for a tenant. The platform outbox stores
- * organization_id as a uuid, but this app's tenant ids are cuids — so a
- * stable, deterministic UUID (v8-style, from sha256(tenantId)) is derived as
- * the SSO-bridge organization identifier until tenants are provisioned with
- * real platform org ids. A tenant id that already is a uuid passes through.
- */
-export function eventOrganizationId(tenantId: string): string {
-  if (UUID_RE.test(tenantId)) return tenantId;
-  const hex = createHash("sha256").update(`grit-pos:${tenantId}`).digest("hex");
-  // Stamp uuid version (8 = "custom") and RFC 4122 variant bits.
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    `8${hex.slice(13, 16)}`,
-    `${((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`,
-    hex.slice(20, 32),
-  ].join("-");
 }
 
 /** Item shape the publisher needs from an order's lines. */
@@ -86,6 +63,9 @@ export interface PublishTransactionCompletedInput {
  * - `location_id` is the tenant's id for now — this app has no Location
  *   model yet, so the tenant is the location.
  * - `tax_amount` is always 0 — there is no tax model in this schema yet.
+ * - Envelope `organization_id` is the raw tenant id (a cuid): the platform
+ *   outbox stores `organization_id` as opaque text, and grit-inventory maps
+ *   it back to `Tenant.id` by equality, so no id translation is needed.
  */
 export async function publishTransactionCompleted(
   input: PublishTransactionCompletedInput,
@@ -107,9 +87,7 @@ export async function publishTransactionCompleted(
       })),
     };
 
-    await bus.publish(
-      buildEvent("transaction.completed", eventOrganizationId(input.tenantId), data),
-    );
+    await bus.publish(buildEvent("transaction.completed", input.tenantId, data));
   } catch (err) {
     // Fire-and-forget by contract: event delivery must never break checkout.
     console.error("Failed to publish transaction.completed", input.orderId, err);

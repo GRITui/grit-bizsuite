@@ -585,6 +585,68 @@
     };
   }
 
+  // ── Ops board (Grit BizSuite pivot) ─────────────────────────────────────
+  // Screen-scoped sync, NOT part of pullAll()'s once-per-restore
+  // BACKUP_STORES flow above — app/opsboard.js pulls fresh from the server
+  // every time its screen opens, merging server-wins on `id`, rather than
+  // folding into the account-wide cloud-restore path. Reuses this file's
+  // apiFetch()/token plumbing (the "reuse SidekickBackend" branch of
+  // opsboard.js's own documented sync-layer choice) instead of a second,
+  // parallel fetch/token implementation living in opsboard.js — this file
+  // is already the one place every other endpoint's fetch/auth/error shape
+  // lives, and ops_tasks fits that same shape (bearer token, JSON body,
+  // {ok,status,data}) with no bespoke wrinkle that would justify going
+  // around it.
+  //
+  // Wire format is snake_case (id/location_id/title/.../assigned_shift),
+  // matching every other resource endpoint's `select *` pass-through
+  // convention (see lib/crudHandler.js) — NOT the camelCase-mapped shape
+  // toClientPayload/fromClientRow etc. use above, since ops_tasks has no
+  // separate local-autoincrement-id-vs-cuid split to bridge (its `id` IS
+  // the stable identity on both sides, see app/app.js's opsTasks store
+  // comment) — a straight snake_case<->camelCase field rename is all that's
+  // needed, done here in toOpsTaskPayload/fromOpsTaskRow.
+  function toOpsTaskPayload(t) {
+    return {
+      id: t.id, location_id: t.locationId, title: t.title, description: t.description,
+      status: t.status, priority: t.priority, assigned_shift: t.assignedShift,
+    };
+  }
+  function fromOpsTaskRow(row) {
+    return {
+      id: row.id, locationId: row.location_id, title: row.title, description: row.description,
+      status: row.status, priority: row.priority, triggeredBy: row.triggered_by,
+      assignedShift: row.assigned_shift, sourceEventId: row.source_event_id,
+      createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at,
+    };
+  }
+  async function opsTasksList(params) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    const r = await apiFetch(`/api/ops-tasks${qs}`);
+    return { ok: r.ok, status: r.status, rows: r.ok && Array.isArray(r.data.rows) ? r.data.rows.map(fromOpsTaskRow) : [] };
+  }
+  async function opsTaskCreate(t) {
+    const r = await apiFetch('/api/ops-tasks', { method: 'POST', body: toOpsTaskPayload(t) });
+    return { ok: r.ok, status: r.status, row: r.ok && r.data.row ? fromOpsTaskRow(r.data.row) : null };
+  }
+  // `patch` is local-shaped (camelCase) partial fields — only the keys
+  // actually present are sent, same "absent fields are left untouched"
+  // contract api/ops-tasks.js's PUT implements server-side.
+  async function opsTaskUpdate(id, patch) {
+    const body = {};
+    if ('title' in patch) body.title = patch.title;
+    if ('description' in patch) body.description = patch.description;
+    if ('priority' in patch) body.priority = patch.priority;
+    if ('assignedShift' in patch) body.assigned_shift = patch.assignedShift;
+    if ('locationId' in patch) body.location_id = patch.locationId;
+    if ('status' in patch) body.status = patch.status;
+    const r = await apiFetch(`/api/ops-tasks?id=${encodeURIComponent(id)}`, { method: 'PUT', body });
+    return { ok: r.ok, status: r.status, row: r.ok && r.data.row ? fromOpsTaskRow(r.data.row) : null };
+  }
+  async function opsTaskDelete(id) {
+    return apiFetch(`/api/ops-tasks?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
   window.SidekickBackend = {
     isEnabled, register, login, registerLine, session, logout, migrateUpload,
     billingCheckout, billingPortal,
@@ -606,5 +668,6 @@
     mirrorPackageSave: packagesMirror.mirrorSave,
     mirrorProgressLogSave: progressLogsMirror.mirrorSave, mirrorProgressLogDelete: progressLogsMirror.mirrorDelete,
     mirrorSettingSave, pullAll,
+    opsTasksList, opsTaskCreate, opsTaskUpdate, opsTaskDelete,
   };
 })();

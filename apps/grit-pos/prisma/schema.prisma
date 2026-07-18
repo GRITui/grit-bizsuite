@@ -301,12 +301,13 @@ model Payment {
 /// Durable outbox for @grit/shared-events, written by @grit/database's
 /// `createNeonOutboxStore` against this app's own DATABASE_URL. Mirrors the
 /// canonical `event_outbox` table in packages/database exactly (snake_case
-/// columns, uuid organization scope) — the store's raw SQL must line up.
+/// columns, opaque text organization scope, no FK to organizations) — the
+/// store's raw SQL must line up.
 /// This app only reads it directly for velocity-surge dedupe (lib/velocity.ts).
 model EventOutbox {
   eventId        String    @id @map("event_id") @db.VarChar(100)
   eventName      String    @map("event_name") @db.VarChar(100)
-  organizationId String?   @map("organization_id") @db.Uuid
+  organizationId String?   @map("organization_id")
   payload        Json
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
   deliveredAt    DateTime? @map("delivered_at") @db.Timestamp(6)

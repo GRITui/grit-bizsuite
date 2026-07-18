@@ -27,10 +27,13 @@ let db;
 // removed once Member Tags merged into the Client system, see saveJob()),
 // 5→6 ('usageEvents' — local usage analytics), 6→7 ('packages' — session
 // bundles, e.g. "buy 10, track remaining"; 'progressLogs' — per-client
-// weight/notes entries over time). onupgradeneeded only CREATES
-// missing stores (each guarded by !contains) — it never drops or clears
-// existing stores, so guest jobs / clients / settings survive the upgrade.
-const DB_NAME = 'sidekick-v1', DB_VER = 7;
+// weight/notes entries over time), 7→8 in the Grit BizSuite pivot
+// ('opsTasks' — ops kanban cards, keyPath 'id' with NO autoIncrement unlike
+// every store above — see app/opsboard.js's header for why). onupgradeneeded
+// only CREATES missing stores (each guarded by !contains) — it never drops
+// or clears existing stores, so guest jobs / clients / settings survive the
+// upgrade.
+const DB_NAME = 'sidekick-v1', DB_VER = 8;
 // RENAME/MIGRATION: this app used to be "Freelanz Gym" (DB_NAME
 // 'freelanz-gym-v1'), namespaced that way because it co-hosted with a
 // separate "Freelanz" app on the same GitHub Pages origin. That sibling app
@@ -62,6 +65,13 @@ function openDB() {
       if (!d.objectStoreNames.contains('usageEvents')) d.createObjectStore('usageEvents', {keyPath:'id', autoIncrement:true}); // local-only usage analytics (never leaves this device)
       if (!d.objectStoreNames.contains('packages'))    d.createObjectStore('packages',    {keyPath:'id', autoIncrement:true}); // session bundles
       if (!d.objectStoreNames.contains('progressLogs')) d.createObjectStore('progressLogs', {keyPath:'id', autoIncrement:true}); // per-client weight/notes over time
+      // Grit BizSuite pivot: ops kanban cards. keyPath 'id' with NO
+      // autoIncrement — unlike every store above, `id` here IS the stable
+      // identity (a client-minted cuid, or one minted server-side by
+      // api/grit-events.js for an event-driven card), mirroring
+      // sql/schema-core.sql's ops_tasks.id 1:1 rather than pairing a local
+      // autoincrement id with a separate `cuid` field. See app/opsboard.js.
+      if (!d.objectStoreNames.contains('opsTasks')) d.createObjectStore('opsTasks', {keyPath:'id'});
       if (!d.objectStoreNames.contains('settings'))  d.createObjectStore('settings',  {keyPath:'key'});
       if (!d.objectStoreNames.contains('meta'))      d.createObjectStore('meta',      {keyPath:'key'});   // dormant (future sync)
       if (!d.objectStoreNames.contains('outbox'))    d.createObjectStore('outbox',    {keyPath:'key', autoIncrement:true}); // dormant
@@ -6686,7 +6696,7 @@ async function exportPndSummary() {
 // All uid-scoped stores a full backup/restore round-trips. Kept in one place
 // so a future new store (like bookings/followups/portfolio were for M3) only
 // needs to be added here, not re-plumbed through export/import separately.
-const BACKUP_STORES = ['jobs', 'expenses', 'clients', 'services', 'invoices', 'documents', 'bookings', 'followups', 'portfolio', 'research', 'packages', 'progressLogs'];
+const BACKUP_STORES = ['jobs', 'expenses', 'clients', 'services', 'invoices', 'documents', 'bookings', 'followups', 'portfolio', 'research', 'packages', 'progressLogs', 'opsTasks'];
 
 async function exportBackup() {
   const uid = isGuest ? 'guest' : currentUser.id;
@@ -6712,7 +6722,7 @@ function pickBackupFile() { const inp = document.getElementById('backup-file'); 
 // Referenced stores first (targets), dependents after — shared ordering for
 // both the delete phase and the insert-with-remap phase below.
 const IMPORT_ORDER = ['clients', 'services', 'invoices', 'documents', 'packages',
-  'jobs', 'bookings', 'followups', 'progressLogs', 'expenses', 'portfolio', 'research'];
+  'jobs', 'bookings', 'followups', 'progressLogs', 'expenses', 'portfolio', 'research', 'opsTasks'];
 
 // The delete-then-insert swap (with per-store oldId→newId remap of every
 // id-based cross-reference, rollback on failure) that used to live inline in
@@ -6807,6 +6817,19 @@ async function importDataset(byStore, uid) {
       cuidMap[s] = new Map();
       for (const row of byStore[s]) {
         const { id, ...rest } = row;
+        // opsTasks carries a globally-stable cuid AS its primary `id` (see
+        // openDB()'s opsTasks store comment), not a device-local
+        // autoincrement number like every other BACKUP_STORES row — so it
+        // is restored via put() with that same id preserved verbatim,
+        // exactly how a cuid-based cross-store link elsewhere in this
+        // function "rides through untouched". Nothing else references an
+        // ops task by id, so there is no idMap/cuidMap entry to record and
+        // no remap() call needed for it.
+        if (s === 'opsTasks') {
+          await dbPut(s, { id, ...rest, uid });
+          inserted++;
+          continue;
+        }
         if (s === 'jobs') {
           resolveRef('clients', rest, 'clientId', '__clientCuid');
           resolveRef('services', rest, 'serviceId', '__serviceCuid');
@@ -6850,7 +6873,14 @@ async function importDataset(byStore, uid) {
   } catch (err) {
     // Roll back: restore the pre-import rows so a failed swap doesn't lose data.
     for (const s of stores) {
-      for (const row of savedByStore[s]) { const {id, ...rest} = row; await dbAdd(s, {...rest, uid}).catch(()=>{}); }
+      for (const row of savedByStore[s]) {
+        const {id, ...rest} = row;
+        // Same opsTasks exception as the insert loop above: put() with the
+        // id preserved, not add() (which would need an id and this store
+        // has no autoIncrement to mint one).
+        if (s === 'opsTasks') { await dbPut(s, { id, ...rest, uid }).catch(()=>{}); continue; }
+        await dbAdd(s, {...rest, uid}).catch(()=>{});
+      }
     }
     throw err;
   }
@@ -6981,6 +7011,8 @@ function switchScreen(name) {
   if (name === 'portfolio' && typeof renderPortfolio === 'function') renderPortfolio();
   // M5 module (research.js).
   if (name === 'research' && typeof renderResearch === 'function') renderResearch();
+  // Grit BizSuite pivot (opsboard.js).
+  if (name === 'opsboard' && typeof renderOpsBoard === 'function') renderOpsBoard();
   window.scrollTo(0, 0);
 }
 // ─── i18n render pass ─────────────────────────────────────────────────

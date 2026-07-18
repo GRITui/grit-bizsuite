@@ -89,10 +89,10 @@ event delivery.
   `lib/velocity.ts` counts the tenant's closed orders in the trailing
   `GRIT_SURGE_WINDOW_MIN` (default 10) minutes; at ≥ `GRIT_SURGE_THRESHOLD`
   (default 25) it publishes once per window (deduped against the outbox).
-- Envelope `organization_id`: the platform outbox stores a **uuid**, but this
-  app's tenant ids are cuids — a deterministic UUID is derived from
-  `sha256(tenantId)` (`lib/events.ts#eventOrganizationId`) as the bridge
-  identifier until tenants carry real platform org ids.
+- Envelope `organization_id` is the **raw tenant id** (a cuid, unchanged).
+  The platform outbox stores `organization_id` as opaque text with no FK to
+  `organizations`, and grit-inventory maps it back to `Tenant.id` by
+  equality — no id translation happens on the way out.
 - `GET/POST /api/cron/events-drain` — bearer `CRON_SECRET` (grit-inventory's
   pattern); calls `bus.drainOutbox()` to re-deliver failed webhooks.
 

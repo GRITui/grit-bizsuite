@@ -3,7 +3,7 @@ import "server-only";
 import { buildEvent, type PosVelocitySurgeData } from "@grit/shared-events";
 import { prisma } from "@/lib/prisma";
 import { OrderStatus } from "@/app/generated/prisma/enums";
-import { eventOrganizationId, getEventBus } from "@/lib/events";
+import { getEventBus } from "@/lib/events";
 
 // ---------------------------------------------------------------------------
 // pos.velocity_surge — after each completed transaction, count the tenant's
@@ -58,7 +58,9 @@ export async function checkVelocitySurge(tenantId: string): Promise<void> {
     });
     if (transactionsInWindow < threshold) return;
 
-    const organizationId = eventOrganizationId(tenantId);
+    // Envelope organization_id is the raw tenant id (opaque text in the
+    // outbox — see lib/events.ts).
+    const organizationId = tenantId;
     const alreadyEmitted = await prisma.eventOutbox.count({
       where: {
         eventName: "pos.velocity_surge",

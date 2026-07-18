@@ -66,7 +66,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "payments_externalRef_key"
 CREATE TABLE IF NOT EXISTS "event_outbox" (
   "event_id" VARCHAR(100) NOT NULL,
   "event_name" VARCHAR(100) NOT NULL,
-  "organization_id" UUID,
+  -- Opaque envelope org id (apps may use non-uuid tenant ids, e.g. cuids),
+  -- so this is intentionally text with no FK to organizations.
+  "organization_id" TEXT,
   "payload" JSONB NOT NULL,
   "created_at" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
   "delivered_at" TIMESTAMP(6),

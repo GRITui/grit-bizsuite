@@ -579,3 +579,63 @@ create table if not exists team_members (
 );
 
 create index if not exists idx_team_members_owner on team_members(org_owner_cuid);
+
+-- ─── GRIT BIZSUITE PIVOT (2026-07-18): OPS TASKBOARD ────────────────────────
+-- Grit Taskboard's kanban layer, added alongside (not replacing) the
+-- freelancer feature set above. `id` is the real primary key here — unlike
+-- every table above (`cuid` primary key, separate autoincrement local `id`
+-- on the IndexedDB side), this column mirrors the platform `tasks` table's
+-- own primary key name 1:1 (see packages/database/migrations/0001_core.sql +
+-- 0002_platform_extensions.sql) since ops_tasks rows can be minted by EITHER
+-- side: a card the user creates locally (client-minted text id, same
+-- "cuid()-shaped, server just validates and inserts" convention every other
+-- table here already follows — see this file's header), or a card born from
+-- an inbound cross-app event (api/grit-events.js mints the id server-side).
+-- `user_cuid` keeps this app's own row-scoping convention (every table
+-- above has one) rather than an `organization_id` column — see
+-- grit_org_links below for how an account maps to a Grit organization id;
+-- ops_tasks itself is never queried by organization_id directly, only by
+-- the resolved data-owner cuid, same as every other resource here.
+create table if not exists ops_tasks (
+  id                text primary key,
+  user_cuid         text not null references users(cuid) on delete cascade,
+  location_id       text,
+  title             text not null,
+  description       text,
+  status            text not null default 'todo' check (status in ('todo', 'in_progress', 'review', 'done')),
+  priority          text not null default 'normal' check (priority in ('low', 'normal', 'high')),
+  -- 'system_inventory' | 'system_pos' -> minted by api/grit-events.js from an
+  -- inbound inventory.threshold_breached/pos.velocity_surge webhook;
+  -- 'manual' -> created by a person in the Ops board UI (api/ops-tasks.js).
+  triggered_by      text not null default 'manual' check (triggered_by in ('system_inventory', 'system_pos', 'manual')),
+  assigned_shift    text,
+  -- Idempotency key for event-driven cards: the source event's event_id.
+  -- NULL for manually created cards; unique when present (same
+  -- "on conflict (source_event_id) do nothing" pattern the platform tasks
+  -- table's own tasks_source_event_id_key index exists for).
+  source_event_id   text unique,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  completed_at      timestamptz
+);
+
+create index if not exists idx_ops_tasks_user on ops_tasks(user_cuid);
+create index if not exists idx_ops_tasks_user_status on ops_tasks(user_cuid, status);
+
+-- One taskboard account <-> one Grit BizSuite organization id (an opaque
+-- string minted by the platform side — grit-pos/grit-inventory/grit-passport
+-- own what an "organization" actually is, this app only stores the link).
+-- `user_cuid` is the primary key (not a separate cuid) since this is a
+-- strict 1:1 mapping — api/grit-org-link.js's GET/PUT/DELETE always targets
+-- "the calling account's org link", singular. `organization_id` is globally
+-- unique too: one Grit organization is never linked to two different
+-- taskboard accounts (api/grit-org-link.js's PUT returns 409 if it is).
+-- This is also the table api/grit-events.js's webhook handler reads to map
+-- an inbound envelope's `organization_id` back to the taskboard account
+-- that should receive the resulting card — an unmapped organization_id is
+-- a 202-and-skip there, never an error (see that file's header).
+create table if not exists grit_org_links (
+  user_cuid         text primary key references users(cuid) on delete cascade,
+  organization_id   text not null unique,
+  created_at        timestamptz not null default now()
+);

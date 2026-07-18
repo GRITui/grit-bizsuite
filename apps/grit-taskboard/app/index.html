@@ -133,6 +133,19 @@
   <div class="content"><div id="research-body"></div></div>
 </section>
 
+<!-- ══ OPS BOARD (Grit BizSuite pivot — owned by opsboard.js) ══ -->
+<section class="screen" id="s-opsboard">
+  <div class="hdr-plain">
+    <div class="hdr-row">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="avatar" onclick="switchScreen('more')" aria-label="Back" style="font-size:22px">‹</button>
+        <h1>Ops board</h1>
+      </div>
+    </div>
+  </div>
+  <div class="content"><div id="opsboard-body"></div></div>
+</section>
+
 <!-- ══ INSIGHTS (local-only usage analytics — never leaves this device) ══ -->
 <section class="screen" id="s-insights">
   <div class="hdr-plain">
@@ -193,6 +206,10 @@
         </div>
         <div class="settings-row" style="cursor:pointer" onclick="switchScreen('research')">
           <span class="settings-label" data-i18n="research_row_title">Research</span>
+          <span class="settings-label" style="color:var(--text3)">›</span>
+        </div>
+        <div class="settings-row" style="cursor:pointer" onclick="switchScreen('opsboard')">
+          <span class="settings-label">Ops board</span>
           <span class="settings-label" style="color:var(--text3)">›</span>
         </div>
         <div class="settings-row" id="insights-row" style="cursor:pointer;display:none" onclick="switchScreen('insights')">
@@ -679,3 +696,8 @@
 <!-- M5: research.js (content library, subscription UI stubbed open — no
      payment verification yet; see project-changelog-handshake.md). -->
 <script src="research.js?v=0.9.37"></script>
+<!-- Grit BizSuite pivot: opsboard.js (ops kanban + event-automation cards).
+     Loads after dataClient.js (extends window.SidekickBackend with the
+     ops-tasks sync calls) and after the other screen modules, same
+     "own file per screen, loaded after app.js" convention. -->
+<script src="opsboard.js?v=0.9.37"></script>

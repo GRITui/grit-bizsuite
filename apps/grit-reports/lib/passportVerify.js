@@ -5,9 +5,11 @@
  * as apps/grit-taskboard/lib/gritEvents.js mirroring @grit/shared-events:
  * this app can't import TypeScript source directly, and the task spec
  * forbids adding `jose` as a dependency here, so HS256 verification is done
- * by hand with Node's Web Crypto (`node:crypto`'s `webcrypto` export) —
- * the exact same primitive @grit/shared-events/src/webhook.ts uses for HMAC
- * signing, just applied to compact JWT verification instead.
+ * by hand with the standard Web Crypto API (the global `crypto.subtle`,
+ * available in both this app's Edge functions and modern Node — importing
+ * from `node:crypto` instead breaks the Edge runtime build) — the exact same
+ * primitive @grit/shared-events/src/webhook.ts uses for HMAC signing, just
+ * applied to compact JWT verification instead.
  *
  * Wire contract (must stay identical to packages/passport/src/session.ts):
  *   - Cookie name: `grit_passport`
@@ -19,8 +21,6 @@
  *
  * If the session shape in session.ts changes, update this file to match.
  */
-
-import { webcrypto } from "node:crypto";
 
 export const GRIT_SESSION_COOKIE = "grit_passport";
 
@@ -34,14 +34,19 @@ const TIERS = ["LITE", "GROWTH", "SCALE"];
 const CUSTOM_REPORTING_MIN_TIER = "GROWTH";
 const TIER_RANK = { LITE: 0, GROWTH: 1, SCALE: 2 };
 
-function base64UrlToBuffer(segment) {
+// `Buffer` isn't available on the Edge runtime — decode base64url with the
+// standard `atob` global instead (available in both Edge and modern Node).
+function base64UrlToBytes(segment) {
   const padded = segment.replace(/-/g, "+").replace(/_/g, "/");
   const padLen = (4 - (padded.length % 4)) % 4;
-  return Buffer.from(padded + "=".repeat(padLen), "base64");
+  const binary = atob(padded + "=".repeat(padLen));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 function decodeJsonSegment(segment) {
-  return JSON.parse(base64UrlToBuffer(segment).toString("utf8"));
+  return JSON.parse(new TextDecoder().decode(base64UrlToBytes(segment)));
 }
 
 function getSessionSecret() {
@@ -49,7 +54,7 @@ function getSessionSecret() {
 }
 
 async function importHmacKey(secret) {
-  return webcrypto.subtle.importKey(
+  return crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
@@ -86,7 +91,7 @@ export async function verifySessionToken(token) {
 
   let signature;
   try {
-    signature = base64UrlToBuffer(sigSeg);
+    signature = base64UrlToBytes(sigSeg);
   } catch {
     return null;
   }
@@ -101,7 +106,7 @@ export async function verifySessionToken(token) {
   const signingInput = new TextEncoder().encode(`${headerSeg}.${payloadSeg}`);
   let valid = false;
   try {
-    valid = await webcrypto.subtle.verify("HMAC", key, signature, signingInput);
+    valid = await crypto.subtle.verify("HMAC", key, signature, signingInput);
   } catch {
     return null;
   }

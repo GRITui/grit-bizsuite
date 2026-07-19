@@ -13,6 +13,7 @@ export const EVENT_NAMES = [
   "pos.velocity_surge",
   "task.completed",
   "promotion.updated",
+  "discount_policy.updated",
 ] as const;
 
 export type GritEventName = (typeof EVENT_NAMES)[number];
@@ -138,10 +139,32 @@ export interface PromotionUpdatedData {
    * the bundle's member SKUs for bundle_deal). Always resolved to SKUs, not
    * internal variant ids — SKU is the only join key POS and Inventory share. */
   items: Array<{ sku: string; required_quantity: number }>;
+  /** Other promotion_ids this rule must never co-apply with on the same
+   * order (see discount_policy.updated below for the tenant-wide stacking
+   * policy — this is the separate, always-on per-order exclusion layer).
+   * Absent/omitted is equivalent to an empty list. */
+  excluded_promotion_ids?: string[];
 }
 export type PromotionUpdatedEvent = GritEventEnvelope<
   "promotion.updated",
   PromotionUpdatedData
+>;
+
+/**
+ * Emitted by Grit Inventory whenever a tenant's discount-stacking policy
+ * setting changes. Tenant-wide, so it doesn't fit `promotion.updated`'s
+ * per-rule shape — a separate small event instead. Grit POS caches the
+ * current policy locally (same offline-first reasoning as promotion.updated)
+ * and applies it as a resolution step in lib/promotions.ts before summing a
+ * cart's discount: NO_STACKING keeps only the single best-discount rule per
+ * line, STACK_ALL applies every matching rule (today's behavior).
+ */
+export interface DiscountPolicyUpdatedData {
+  policy: "NO_STACKING" | "STACK_ALL";
+}
+export type DiscountPolicyUpdatedEvent = GritEventEnvelope<
+  "discount_policy.updated",
+  DiscountPolicyUpdatedData
 >;
 
 export type GritEvent =
@@ -150,7 +173,8 @@ export type GritEvent =
   | InventoryTransferCompletedEvent
   | PosVelocitySurgeEvent
   | TaskCompletedEvent
-  | PromotionUpdatedEvent;
+  | PromotionUpdatedEvent
+  | DiscountPolicyUpdatedEvent;
 
 /* ------------------------------------------------------------------ */
 /* Runtime validation (dependency-free so no-build JS apps can mirror it) */
@@ -229,7 +253,14 @@ const DATA_VALIDATORS: Record<GritEventName, (d: unknown) => boolean> = {
         isNonEmptyString(i.sku) &&
         isFiniteNumber(i.required_quantity) &&
         i.required_quantity > 0,
-    ),
+    ) &&
+    (d.excluded_promotion_ids === undefined ||
+      (Array.isArray(d.excluded_promotion_ids) &&
+        d.excluded_promotion_ids.every((id) => isNonEmptyString(id)))),
+  "discount_policy.updated": (d) =>
+    isRecord(d) &&
+    typeof d.policy === "string" &&
+    ["NO_STACKING", "STACK_ALL"].includes(d.policy),
 };
 
 export function isGritEventName(v: unknown): v is GritEventName {

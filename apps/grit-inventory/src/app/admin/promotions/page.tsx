@@ -36,7 +36,7 @@ export default async function PromotionsPage() {
     );
   }
 
-  const [promotions, variants, subGroups] = await Promise.all([
+  const [promotions, variants, subGroups, exclusions, tenant] = await Promise.all([
     db.promotion.findMany({
       where: { tenantId: ctx.local.tenantId },
       orderBy: { createdAt: "desc" },
@@ -55,7 +55,30 @@ export default async function PromotionsPage() {
       include: { group: { select: { name: true } } },
       orderBy: [{ name: "asc" }],
     }),
+    db.promotionExclusion.findMany({
+      where: { tenantId: ctx.local.tenantId },
+      select: { promotionId: true, excludedPromotionId: true },
+    }),
+    db.tenant.findUniqueOrThrow({
+      where: { id: ctx.local.tenantId },
+      select: { discountStackingPolicy: true },
+    }),
   ]);
+
+  // Exclusions are stored as one normalized row per undirected pair (see
+  // syncPromotionExclusions in src/lib/promotions.ts); expand back out to
+  // "every other id this promotion is excluded from" for each side.
+  const excludedIdsByPromotionId = new Map<string, string[]>();
+  for (const ex of exclusions) {
+    excludedIdsByPromotionId.set(ex.promotionId, [
+      ...(excludedIdsByPromotionId.get(ex.promotionId) ?? []),
+      ex.excludedPromotionId,
+    ]);
+    excludedIdsByPromotionId.set(ex.excludedPromotionId, [
+      ...(excludedIdsByPromotionId.get(ex.excludedPromotionId) ?? []),
+      ex.promotionId,
+    ]);
+  }
 
   return (
     <div>
@@ -64,6 +87,7 @@ export default async function PromotionsPage() {
         description="Buy-X-pay-Y, quantity discounts, and bundle deals. Changes push to Grit POS automatically."
       />
       <PromotionsManager
+        discountStackingPolicy={tenant.discountStackingPolicy === "STACK_ALL" ? "STACK_ALL" : "NO_STACKING"}
         promotions={promotions.map((p) => ({
           id: p.id,
           name: p.name,
@@ -90,6 +114,7 @@ export default async function PromotionsPage() {
             name: sg.subGroup.name,
             groupName: sg.subGroup.group.name,
           })),
+          excludedPromotionIds: excludedIdsByPromotionId.get(p.id) ?? [],
         }))}
         variants={variants.map((v) => ({
           id: v.id,

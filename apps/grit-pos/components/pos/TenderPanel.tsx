@@ -40,6 +40,20 @@ export default function TenderPanel({
           <span className="text-zinc-500 dark:text-zinc-400">Order subtotal</span>
           <span className="tabular-nums">{formatMoney(order.subtotal)}</span>
         </div>
+        <div className="flex justify-between text-sm text-zinc-500 dark:text-zinc-400">
+          <span>Subtotal (excl. VAT)</span>
+          <span className="tabular-nums">{formatMoney(order.subtotalExclVat)}</span>
+        </div>
+        <div className="flex justify-between text-sm text-zinc-500 dark:text-zinc-400">
+          <span>VAT ({order.vatRate}%)</span>
+          <span className="tabular-nums">{formatMoney(order.vatAmount)}</span>
+        </div>
+        {order.vatExemptSubtotal > 0 && (
+          <div className="flex justify-between text-sm text-zinc-500 dark:text-zinc-400">
+            <span>VAT-exempt items</span>
+            <span className="tabular-nums">{formatMoney(order.vatExemptSubtotal)}</span>
+          </div>
+        )}
         {order.discountTotal > 0 && (
           <div className="flex justify-between text-sm text-emerald-700 dark:text-emerald-400">
             <span>Promotions</span>

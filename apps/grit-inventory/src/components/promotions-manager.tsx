@@ -36,7 +36,13 @@ export type PromotionRow = {
   bundlePrice: string | null;
   scopeVariants: PromotionScopeVariant[];
   scopeGroups: PromotionScopeGroup[];
+  /** Discount resolution policy (BACKLOG.md), layer 2: other promotion ids
+   * this rule must never co-apply with on the same order. */
+  excludedPromotionIds: string[];
 };
+
+/** Tenant-wide per-line discount resolution policy (BACKLOG.md, layer 1). */
+export type DiscountStackingPolicy = "NO_STACKING" | "STACK_ALL";
 
 export type VariantOption = { id: string; sku: string; name: string; productName: string };
 export type SubGroupOption = { id: string; name: string; groupName: string };
@@ -98,6 +104,7 @@ function promotionToPayload(p: PromotionRow, overrides: { isActive?: boolean } =
     variantId: v.variantId,
     requiredQuantity: v.requiredQuantity,
   }));
+  const excludedPromotionIds = p.excludedPromotionIds;
   if (p.type === "buy_x_pay_y") {
     return {
       ...base,
@@ -105,6 +112,7 @@ function promotionToPayload(p: PromotionRow, overrides: { isActive?: boolean } =
       payQuantity: p.payQuantity,
       variantIds,
       subGroupIds: p.scopeGroups.map((g) => g.subGroupId),
+      excludedPromotionIds,
     };
   }
   if (p.type === "buy_x_get_discount") {
@@ -115,12 +123,14 @@ function promotionToPayload(p: PromotionRow, overrides: { isActive?: boolean } =
       discountValue: p.discountValue ? Number(p.discountValue) : 0,
       variantIds,
       subGroupIds: p.scopeGroups.map((g) => g.subGroupId),
+      excludedPromotionIds,
     };
   }
   return {
     ...base,
     bundlePrice: p.bundlePrice ? Number(p.bundlePrice) : 0,
     variantIds,
+    excludedPromotionIds,
   };
 }
 
@@ -289,6 +299,41 @@ function SubGroupScopePicker({
   );
 }
 
+/** Discount resolution policy (BACKLOG.md), layer 2 — pairwise exclusion
+ * multi-select: "This promotion cannot combine with: [other promotions]".
+ * Independent of the tenant-wide stacking policy and enforced at
+ * cart-evaluation time regardless of it. Lists every other active
+ * promotion (the current one, if editing, is excluded from its own list —
+ * a rule cannot exclude itself). */
+function ExclusionPicker({
+  options,
+  selected,
+  onChange,
+}: {
+  options: Array<{ id: string; name: string }>;
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
+  }
+  if (options.length === 0) {
+    return <p className="text-xs text-zinc-500">No other active promotions to exclude yet.</p>;
+  }
+  return (
+    <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-200 p-2 dark:border-zinc-800">
+      {options.map((opt) => (
+        <li key={opt.id}>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={selected.includes(opt.id)} onChange={() => toggle(opt.id)} />
+            <span>{opt.name}</span>
+          </label>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function toDateInputValue(iso: string | null): string {
   return iso ? iso.slice(0, 10) : "";
 }
@@ -301,12 +346,16 @@ function PromotionForm({
   initial,
   variants,
   subGroups,
+  allPromotions,
   onCancel,
   onSaved,
 }: {
   initial: PromotionRow | null;
   variants: VariantOption[];
   subGroups: SubGroupOption[];
+  /** Every other active promotion, for the "cannot combine with" picker
+   * (the current one, if editing, is filtered out by the caller). */
+  allPromotions: Array<{ id: string; name: string }>;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -332,6 +381,9 @@ function PromotionForm({
   );
   const [subGroupIds, setSubGroupIds] = useState<string[]>(
     initial?.scopeGroups.map((g) => g.subGroupId) ?? []
+  );
+  const [excludedPromotionIds, setExcludedPromotionIds] = useState<string[]>(
+    initial?.excludedPromotionIds ?? []
   );
 
   const [error, setError] = useState<string | null>(null);
@@ -360,6 +412,7 @@ function PromotionForm({
         payQuantity: Number(payQuantity),
         variantIds: variantScope.map((v) => ({ ...v, requiredQuantity: 1 })),
         subGroupIds,
+        excludedPromotionIds,
       };
     } else if (type === "buy_x_get_discount") {
       payload = {
@@ -369,12 +422,14 @@ function PromotionForm({
         discountValue: Number(discountValue),
         variantIds: variantScope.map((v) => ({ ...v, requiredQuantity: 1 })),
         subGroupIds,
+        excludedPromotionIds,
       };
     } else {
       payload = {
         ...base,
         bundlePrice: Number(bundlePrice),
         variantIds: variantScope,
+        excludedPromotionIds,
       };
     }
 
@@ -576,6 +631,22 @@ function PromotionForm({
         </div>
       )}
 
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          This promotion cannot combine with
+        </h4>
+        <p className="mb-1 mt-1 text-xs text-zinc-500">
+          Order-level exclusion — checked at checkout regardless of the tenant&apos;s discount stacking
+          policy below (e.g. a storewide clearance rule that should never combine with a new-customer
+          discount, even on unrelated products).
+        </p>
+        <ExclusionPicker
+          options={allPromotions}
+          selected={excludedPromotionIds}
+          onChange={setExcludedPromotionIds}
+        />
+      </div>
+
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex items-center gap-2">
@@ -603,6 +674,7 @@ function PromotionRowItem({
   promo,
   variants,
   subGroups,
+  allPromotions,
   editing,
   onEdit,
   onCancelEdit,
@@ -611,6 +683,7 @@ function PromotionRowItem({
   promo: PromotionRow;
   variants: VariantOption[];
   subGroups: SubGroupOption[];
+  allPromotions: Array<{ id: string; name: string }>;
   editing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
@@ -662,6 +735,7 @@ function PromotionRowItem({
         initial={promo}
         variants={variants}
         subGroups={subGroups}
+        allPromotions={allPromotions}
         onCancel={onCancelEdit}
         onSaved={onChanged}
       />
@@ -724,11 +798,103 @@ function PromotionRowItem({
   );
 }
 
+/** Discount resolution policy (BACKLOG.md), layer 1 — tenant-wide per-line
+ * resolution policy. Saved independently of any single promotion, via
+ * `/api/tenant-settings` (scoped to just this field). */
+function DiscountPolicyPanel({ policy }: { policy: DiscountStackingPolicy }) {
+  const router = useRouter();
+  const [value, setValue] = useState<DiscountStackingPolicy>(policy);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function select(next: DiscountStackingPolicy) {
+    setValue(next);
+    setSaved(false);
+  }
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/tenant-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discountStackingPolicy: value }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) {
+        setError(data?.error ?? "Could not save discount rules");
+        return;
+      }
+      setSaved(true);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Discount rules</h3>
+      <p className="mt-1 text-xs text-zinc-500">
+        How overlapping promotions resolve on the same cart line, tenant-wide. Per-promotion
+        &quot;cannot combine with&quot; exclusions (set on each promotion below) always apply on top of
+        this, regardless of which option is selected.
+      </p>
+      <div className="mt-3 space-y-2">
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="radio"
+            name="discountStackingPolicy"
+            checked={value === "NO_STACKING"}
+            onChange={() => select("NO_STACKING")}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium text-zinc-900 dark:text-zinc-50">No stacking (recommended)</span>
+            <br />
+            <span className="text-zinc-500">
+              For any cart line, only the single best-discount rule applies.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="radio"
+            name="discountStackingPolicy"
+            checked={value === "STACK_ALL"}
+            onChange={() => select("STACK_ALL")}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium text-zinc-900 dark:text-zinc-50">Stack all matching rules</span>
+            <br />
+            <span className="text-zinc-500">
+              Every matching rule applies to a line — only choose this once you&apos;ve verified your
+              rules don&apos;t unintentionally overlap.
+            </span>
+          </span>
+        </label>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      <div className="mt-3 flex items-center gap-2">
+        <button type="button" disabled={busy} onClick={save} className={smallButtonClass}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {saved && <span className="text-xs text-emerald-600">Saved</span>}
+      </div>
+    </div>
+  );
+}
+
 export function PromotionsManager({
+  discountStackingPolicy,
   promotions,
   variants,
   subGroups,
 }: {
+  discountStackingPolicy: DiscountStackingPolicy;
   promotions: PromotionRow[];
   variants: VariantOption[];
   subGroups: SubGroupOption[];
@@ -743,13 +909,23 @@ export function PromotionsManager({
     router.refresh();
   }
 
+  // "This promotion cannot combine with" only ever offers other active
+  // promotions — an inactive rule can never co-apply with anything, so
+  // excluding it from the picker options avoids a confusing no-op choice.
+  const activePromotionOptions = promotions
+    .filter((p) => p.isActive)
+    .map((p) => ({ id: p.id, name: p.name }));
+
   return (
     <div className="space-y-4">
+      <DiscountPolicyPanel policy={discountStackingPolicy} />
+
       {creating ? (
         <PromotionForm
           initial={null}
           variants={variants}
           subGroups={subGroups}
+          allPromotions={activePromotionOptions}
           onCancel={() => setCreating(false)}
           onSaved={handleChanged}
         />
@@ -775,6 +951,7 @@ export function PromotionsManager({
               promo={promo}
               variants={variants}
               subGroups={subGroups}
+              allPromotions={activePromotionOptions.filter((opt) => opt.id !== promo.id)}
               editing={editingId === promo.id}
               onEdit={() => setEditingId(promo.id)}
               onCancelEdit={() => setEditingId(null)}

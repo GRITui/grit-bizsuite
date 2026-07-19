@@ -4,7 +4,14 @@ import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
-import { fetchPromotionScopeById, fetchPromotionWithScope, publishPromotionUpdate } from "@/lib/promotions";
+import {
+  fetchExcludedPromotionIds,
+  fetchPromotionScopeById,
+  fetchPromotionWithScope,
+  publishPromotionUpdate,
+  syncPromotionExclusions,
+  validateExclusionOwnership,
+} from "@/lib/promotions";
 import { createPromotionSchema } from "../route";
 
 /** GET /api/promotions/[id] — one promotion with its scope, for the edit
@@ -22,7 +29,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const promotion = await fetchPromotionWithScope(id, ctx.local.tenantId);
   if (!promotion) return apiError("Promotion not found", 404);
-  return NextResponse.json({ promotion });
+  const excludedPromotionIds = await fetchExcludedPromotionIds(id);
+  return NextResponse.json({ promotion: { ...promotion, excludedPromotionIds } });
 }
 
 async function validateScopeOwnership(
@@ -76,6 +84,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const scopeError = await validateScopeOwnership(ctx.local.tenantId, variantIds, subGroupIds);
   if (scopeError) return apiError(scopeError, 404);
 
+  const exclusionError = await validateExclusionOwnership(ctx.local.tenantId, id, data.excludedPromotionIds);
+  if (exclusionError) return apiError(exclusionError, 404);
+
   const dedupedVariants = Array.from(
     new Map(data.variantIds.map((v) => [v.variantId, v.requiredQuantity])).entries()
   );
@@ -103,6 +114,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         scopeGroups: { create: subGroupIds.map((subGroupId) => ({ subGroupId })) },
       },
     });
+    await syncPromotionExclusions(tx, ctx.local.tenantId, id, data.excludedPromotionIds);
   });
 
   const scoped = await fetchPromotionScopeById(id);

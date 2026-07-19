@@ -1,7 +1,11 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { parseGritEvent, type PromotionUpdatedEvent } from "@grit/shared-events/contracts";
+import {
+  parseGritEvent,
+  type DiscountPolicyUpdatedEvent,
+  type PromotionUpdatedEvent,
+} from "@grit/shared-events/contracts";
 import { verifyWebhook } from "@grit/shared-events/webhook";
 import { prisma } from "@/lib/prisma";
 
@@ -17,10 +21,14 @@ import { prisma } from "@/lib/prisma";
 //
 // Handles `promotion.updated` from grit-inventory: upserts (or deletes, when
 // `deleted` or `!is_active`) the local `PromotionRule` cache row that
-// lib/promotions.ts evaluates at checkout. grit-pos is offline-first and
-// never calls another app live at sale time, so this webhook — syncing the
-// cache ahead of time — is the only way a promotion rule ever reaches the
-// register (see PromotionRule's schema.prisma doc comment).
+// lib/promotions.ts evaluates at checkout — including the rule's
+// `excluded_promotion_ids`, cached verbatim as `excludedRuleIds`. Also
+// handles `discount_policy.updated`: updates the tenant's synced
+// `discountStackingPolicy`. grit-pos is offline-first and never calls
+// another app live at sale time, so this webhook — syncing both ahead of
+// time — is the only way a promotion rule or the stacking policy ever
+// reaches the register (see PromotionRule/Tenant's schema.prisma doc
+// comments and lib/promotions.ts's resolution step).
 //
 // Tenancy: the envelope's `organization_id` is used directly as
 // `PromotionRule.tenantId` (opaque text, matched by equality) — the same
@@ -63,17 +71,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid event envelope" }, { status: 400 });
   }
 
-  if (event.event !== "promotion.updated") {
-    // Not (yet) a consumer of this event type — acknowledge so the publisher
-    // doesn't treat it as a delivery failure and keep retrying.
-    return NextResponse.json({ ok: true, ignored: event.event });
-  }
-
   try {
-    const result = await handlePromotionUpdated(event as PromotionUpdatedEvent);
-    return NextResponse.json(result);
+    switch (event.event) {
+      case "promotion.updated": {
+        const result = await handlePromotionUpdated(event as PromotionUpdatedEvent);
+        return NextResponse.json(result);
+      }
+      case "discount_policy.updated": {
+        const result = await handleDiscountPolicyUpdated(event as DiscountPolicyUpdatedEvent);
+        return NextResponse.json(result);
+      }
+      default:
+        // Not (yet) a consumer of this event type — acknowledge so the
+        // publisher doesn't treat it as a delivery failure and keep retrying.
+        return NextResponse.json({ ok: true, ignored: event.event });
+    }
   } catch (err) {
-    console.error("Failed to process promotion.updated", event.event_id, err);
+    console.error("Failed to process", event.event, event.event_id, err);
     return NextResponse.json({ error: "Internal error handling webhook" }, { status: 500 });
   }
 }
@@ -102,6 +116,9 @@ async function handlePromotionUpdated(event: PromotionUpdatedEvent) {
     discountValue: data.discount_value ?? null,
     bundlePrice: data.bundle_price ?? null,
     items: data.items as unknown as object,
+    // Absent/omitted on the wire means "no exclusions" (see
+    // PromotionUpdatedData.excluded_promotion_ids's doc comment).
+    excludedRuleIds: (data.excluded_promotion_ids ?? []) as unknown as object,
   };
 
   await prisma.promotionRule.upsert({
@@ -110,4 +127,24 @@ async function handlePromotionUpdated(event: PromotionUpdatedEvent) {
     update: shared,
   });
   return { ok: true, action: "synced" as const, promotion_id: data.promotion_id };
+}
+
+/**
+ * Tenant-wide, so unlike `promotion.updated` there's no per-row upsert/delete
+ * — just an update of the tenant's own synced setting. `updateMany` (not
+ * `update`) so a webhook for a `organization_id` this POS instance has never
+ * seen (no matching Tenant row) is a no-op rather than a throw.
+ */
+async function handleDiscountPolicyUpdated(event: DiscountPolicyUpdatedEvent) {
+  const { organization_id, data } = event;
+
+  const result = await prisma.tenant.updateMany({
+    where: { id: organization_id },
+    data: { discountStackingPolicy: data.policy },
+  });
+  return {
+    ok: true,
+    action: result.count > 0 ? ("synced" as const) : ("ignored_unknown_tenant" as const),
+    organization_id,
+  };
 }

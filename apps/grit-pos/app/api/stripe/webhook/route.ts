@@ -8,6 +8,7 @@ import { verifyStripeWebhook } from "@/lib/stripe";
 import { rateLimit } from "@/lib/rateLimit";
 import { publishTransactionCompleted } from "@/lib/events";
 import { checkVelocitySurge } from "@/lib/velocity";
+import { computeOrderVat } from "@/app/api/orders/_lib/queries";
 
 // POST /api/stripe/webhook
 //
@@ -110,7 +111,8 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
   const paid = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
-      lines: { include: { variant: { select: { sku: true } } } },
+      tenant: { select: { vatRate: true } },
+      lines: { include: { variant: { select: { sku: true, vatApplicable: true } } } },
       payments: { where: { status: PaymentStatus.succeeded }, select: { amount: true } },
     },
   });
@@ -120,11 +122,14 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
   const paidTotal = paid.payments.reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
   if (!paidTotal.greaterThanOrEqualTo(subtotal)) return;
 
+  const { vatAmount } = computeOrderVat(paid.lines, paid.tenant.vatRate);
+
   after(async () => {
     await publishTransactionCompleted({
       tenantId: paid.tenantId,
       orderId: paid.id,
       totalAmount: Number(subtotal),
+      taxAmount: Number(vatAmount),
       lines: paid.lines.map((line) => ({
         productId: line.productId,
         variantSku: line.variant?.sku ?? null,

@@ -7,7 +7,13 @@ import { requireTenantId } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
 import { errorResponse, HttpError, readJsonBody } from "../../_lib/http";
-import { computeOrderDiscount, findOrderForTenant, orderInclude, serializeOrder } from "../../_lib/queries";
+import {
+  computeOrderDiscount,
+  computeOrderVat,
+  findOrderForTenant,
+  orderInclude,
+  serializeOrder,
+} from "../../_lib/queries";
 import { parseMoneyInput, sumDecimals } from "../../_lib/pricing";
 
 // Stripe is a valid TenderType in the schema (for future online/QR-link
@@ -133,11 +139,13 @@ export async function POST(
     // as the transaction total, not the raw line subtotal — it's what was
     // actually charged.
     if (isFullyPaid) {
+      const { vatAmount } = computeOrderVat(updated.lines, updated.tenant.vatRate);
       after(async () => {
         await publishTransactionCompleted({
           tenantId,
           orderId,
           totalAmount: Number(amountDue),
+          taxAmount: Number(vatAmount),
           lines: updated.lines.map((line) => ({
             productId: line.productId,
             variantSku: line.variant?.sku ?? null,

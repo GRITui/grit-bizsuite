@@ -87,6 +87,14 @@ model Tenant {
   /// Grit pivot: addon flags (e.g. "custom_reporting") — mirrors
   /// @grit/database organization_addons.
   addons    String[] @default([])
+  /// Grit pivot (discount resolution policy, BACKLOG.md): tenant-wide
+  /// per-line discount resolution policy ("NO_STACKING" | "STACK_ALL"),
+  /// applied by Grit POS's `evaluatePromotions` before summing a cart's
+  /// discount. Kept as String (not enum) to match the platform's
+  /// varchar+CHECK-as-string convention, same as `tier` above. Changes are
+  /// published as `discount_policy.updated` so POS's offline-first cache
+  /// stays in sync — see src/lib/events.ts.
+  discountStackingPolicy String @default("NO_STACKING")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -106,6 +114,7 @@ model Tenant {
   packTasks        PackTask[]
   parcelLabels     ParcelLabel[]
   promotions       Promotion[]
+  promotionExclusions PromotionExclusion[]
 }
 
 /// Grit pivot (M2 multi-location, executed): tenants may now hold multiple
@@ -810,6 +819,15 @@ model Promotion {
   /// bundle_deal always scopes by explicit member variants).
   scopeGroups   PromotionGroup[]
 
+  /// Discount resolution policy (BACKLOG.md), per-order exclusion layer:
+  /// other promotions this rule must never co-apply with on the same order.
+  /// Undirected pairs are normalized at write time (lexicographically
+  /// smaller promotion id stored as `promotionId`) so a pair is never
+  /// double-stored as both A-excludes-B and B-excludes-A — see
+  /// PromotionExclusion below and src/lib/promotions.ts.
+  exclusionsAsPrimary   PromotionExclusion[] @relation("PromotionExclusionPrimary")
+  exclusionsAsSecondary PromotionExclusion[] @relation("PromotionExclusionSecondary")
+
   @@index([tenantId, isActive])
 }
 
@@ -833,4 +851,31 @@ model PromotionGroup {
   subGroup    ItemSubGroup @relation(fields: [subGroupId], references: [id])
 
   @@index([promotionId])
+}
+
+/// Discount resolution policy (BACKLOG.md), layer 2: per-order exclusion
+/// rules — independent of Tenant.discountStackingPolicy, always enforced.
+/// An undirected pair (promotionId, excludedPromotionId); the app always
+/// writes the lexicographically-smaller promotion id as `promotionId` so
+/// A-excludes-B and B-excludes-A can never both be stored as separate rows
+/// (Prisma's schema DSL cannot express an order-independent uniqueness
+/// constraint directly, so this is enforced by normalizing at write time —
+/// see resolvePromotionExclusionPair in src/lib/promotions.ts — backed by
+/// the plain `@@unique` below on the now-canonical ordered pair).
+model PromotionExclusion {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  promotionId String
+  promotion   Promotion @relation("PromotionExclusionPrimary", fields: [promotionId], references: [id], onDelete: Cascade)
+
+  excludedPromotionId String
+  excludedPromotion   Promotion @relation("PromotionExclusionSecondary", fields: [excludedPromotionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([promotionId, excludedPromotionId])
+  @@index([tenantId])
+  @@index([excludedPromotionId])
 }

@@ -14,13 +14,14 @@ import { checkVelocitySurge } from "@/lib/velocity";
 import { errorResponse, HttpError, readJsonBody } from "../_lib/http";
 import {
   computeOrderDiscount,
+  computeOrderVat,
   findOrderForTenant,
   orderInclude,
   serializeOrder,
   type OrderWithRelations,
 } from "../_lib/queries";
 import { computeLineTotal, computeUnitPrice, parseMoneyInput, sumDecimals } from "../_lib/pricing";
-import { evaluatePromotions, type PromotionCartLine } from "@/lib/promotions";
+import { evaluatePromotions, normalizeStackingPolicy, type PromotionCartLine } from "@/lib/promotions";
 
 // POST /api/orders/offline-sync
 //
@@ -76,6 +77,7 @@ interface SyncResult {
 interface CompletedPublish {
   orderId: string;
   totalAmount: number;
+  taxAmount: number;
   lines: CompletedOrderLine[];
 }
 
@@ -206,9 +208,11 @@ async function applyTenderOp(
   }
 
   if (outcome.isFullyPaid) {
+    const { vatAmount } = computeOrderVat(outcome.order.lines, outcome.order.tenant.vatRate);
     completed.push({
       orderId: outcome.order.id,
       totalAmount: Number(outcome.amountDue),
+      taxAmount: Number(vatAmount),
       lines: collectEventLines(outcome.order),
     });
   }
@@ -275,6 +279,9 @@ async function applyQuickSaleOp(
       productId: product.id,
       variantId: variant?.id ?? null,
       variantSku: variant?.sku ?? null,
+      // Defaults to standard-rated (true) for lines with no variant
+      // selected, same default as the Variant model itself.
+      vatApplicable: variant?.vatApplicable ?? true,
       quantity,
       unitPrice,
       lineTotal: computeLineTotal(unitPrice, selectedAddOns.map((a) => a.price), quantity),
@@ -285,17 +292,28 @@ async function applyQuickSaleOp(
   const subtotal = sumDecimals(preparedLines.map((l) => l.lineTotal));
   // Same discount-aware "fully paid" check as applyTenderOp above — a quick
   // sale is a brand-new order, so there's no prior Payment history to read
-  // discounts off of, but the tenant's active promotions still apply.
+  // discounts off of, but the tenant's active promotions (resolved against
+  // its synced stacking policy, same as the tender path's computeOrderDiscount)
+  // still apply. Tenant is fetched once here (vatRate +
+  // discountStackingPolicy together) and reused below for the VAT split,
+  // instead of the separate vatRate-only lookup this used to do post-creation.
   const quickSaleCartLines: PromotionCartLine[] = preparedLines.map((l) => ({
     sku: eventItemSku({ productId: l.productId, variantSku: l.variantSku }),
     quantity: l.quantity,
     unitPrice: Number(l.unitPrice),
   }));
-  const activeRules =
-    preparedLines.length > 0
-      ? await prisma.promotionRule.findMany({ where: { tenantId, isActive: true } })
-      : [];
-  const { totalDiscount: quickSaleDiscount } = evaluatePromotions(quickSaleCartLines, activeRules);
+  const [activeRules, tenant] = await Promise.all([
+    prisma.promotionRule.findMany({ where: { tenantId, isActive: true } }),
+    prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { vatRate: true, discountStackingPolicy: true },
+    }),
+  ]);
+  const { totalDiscount: quickSaleDiscount } = evaluatePromotions(
+    quickSaleCartLines,
+    activeRules,
+    normalizeStackingPolicy(tenant.discountStackingPolicy),
+  );
   const amountDue = subtotal.minus(quickSaleDiscount);
   const isFullyPaid = amount.greaterThanOrEqualTo(amountDue);
 
@@ -335,9 +353,21 @@ async function applyQuickSaleOp(
   }
 
   if (isFullyPaid) {
+    // `tenant` (vatRate + discountStackingPolicy) was already fetched above
+    // for the discount resolution — a brand-new order has no
+    // OrderWithRelations fetch to read `order.tenant.vatRate` off of, so
+    // reuse that lookup instead of a second one here.
+    const { vatAmount } = computeOrderVat(
+      preparedLines.map((line) => ({
+        lineTotal: line.lineTotal,
+        variant: { vatApplicable: line.vatApplicable },
+      })),
+      tenant.vatRate,
+    );
     completed.push({
       orderId: created.id,
       totalAmount: Number(amountDue),
+      taxAmount: Number(vatAmount),
       lines: preparedLines.map((line) => ({
         productId: line.productId,
         variantSku: line.variantSku,
@@ -400,6 +430,7 @@ export async function POST(request: Request) {
             tenantId,
             orderId: done.orderId,
             totalAmount: done.totalAmount,
+            taxAmount: done.taxAmount,
             lines: done.lines,
             offlineSynced: true,
           });

@@ -76,6 +76,21 @@ model Tenant {
   /// organization_addons in @grit/database (flattened to a string[] here).
   addons String[] @default([])
 
+  /// VAT rate (percent) applied to VAT-inclusive selling prices, e.g. 7.00
+  /// for Thailand's standard rate. Tenant-configurable (not hardcoded)
+  /// since the rate is set by periodically-renewed cabinet resolution.
+  /// Excl-VAT/VAT split is derived at read time from `price` and
+  /// `Variant.vatApplicable` — see app/api/orders/_lib/queries.ts.
+  vatRate Decimal @db.Decimal(5, 2) @default(7.00)
+
+  /// Tenant-wide discount-stacking policy, synced from grit-inventory's
+  /// `discount_policy.updated` event (app/api/events/grit/route.ts) — same
+  /// "opaque String, cross-app pivot field" convention as `tier` above.
+  /// 'NO_STACKING' (default): at checkout, only the single best-discount
+  /// PromotionRule per line/SKU survives. 'STACK_ALL': every matching rule
+  /// applies (see lib/promotions.ts evaluatePromotions' resolution step).
+  discountStackingPolicy String @default("NO_STACKING")
+
   users                 User[]
   tables                Table[]
   categories            Category[]
@@ -179,6 +194,12 @@ model Variant {
   /// Attribute axes for matrix variants, e.g. {"size":"L","color":"black"} —
   /// mirrors product_variants.attributes in @grit/database.
   attributes Json?
+
+  /// Whether this SKU's price is VAT-inclusive (default: true, since most
+  /// retail goods are standard-rated). Flip off per item for legally
+  /// VAT-exempt goods. Selling price stays the single source of truth;
+  /// excl-VAT/VAT amounts are derived at read time, never stored.
+  vatApplicable Boolean @default(true)
 
   product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   orderLines OrderLine[]
@@ -338,6 +359,13 @@ model PromotionRule {
   /// mirroring PromotionUpdatedData.items verbatim (snake_case keys) since
   /// this is a cache of the wire payload, not a normalized relation.
   items Json
+
+  /// Other PromotionRule ids this rule must never co-apply with on the same
+  /// order — array of ids, mirroring PromotionUpdatedData.excluded_promotion_ids
+  /// verbatim, same "cache of the wire payload" convention as `items`.
+  /// Enforced pairwise (order-independent) after the stacking-policy
+  /// resolution step in lib/promotions.ts, regardless of policy.
+  excludedRuleIds Json @default("[]")
 
   updatedAt DateTime @updatedAt
   /// When this row was last written by the inbound webhook (distinct from

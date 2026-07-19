@@ -1,7 +1,10 @@
-import type { PromotionUpdatedData } from "@grit/shared-events/contracts";
+import type { DiscountPolicyUpdatedData, PromotionUpdatedData } from "@grit/shared-events/contracts";
+import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { publishPromotionUpdated } from "@/lib/events";
+import { publishDiscountPolicyUpdated, publishPromotionUpdated } from "@/lib/events";
 import { formatCurrency } from "@/lib/format";
+
+type TxClient = Prisma.TransactionClient;
 
 /**
  * Grit BizSuite pivot: pricing/promotion rules admin support. Source of
@@ -49,6 +52,84 @@ export async function fetchPromotionScopeById(id: string) {
   return db.promotion.findUniqueOrThrow({
     where: { id },
     include: SCOPE_INCLUDE,
+  });
+}
+
+/**
+ * Discount resolution policy (BACKLOG.md), layer 2 — per-order exclusion
+ * rules. An exclusion is an undirected pair, but the schema's
+ * `PromotionExclusion` table stores it as two ordered columns
+ * (`promotionId`, `excludedPromotionId`) with a `@@unique` on the pair, so
+ * A-excludes-B and B-excludes-A must be normalized to the same row rather
+ * than allowed to collide as two rows. This always orders the pair by
+ * plain string comparison — callers never need to know or care which side
+ * of the pair a given id ends up on.
+ */
+export function normalizeExclusionPair(a: string, b: string): [string, string] {
+  return a < b ? [a, b] : [b, a];
+}
+
+/** Every other promotion id `promotionId` is currently excluded from
+ * combining with, resolved from either side of the normalized pair. */
+export async function fetchExcludedPromotionIds(promotionId: string): Promise<string[]> {
+  const rows = await db.promotionExclusion.findMany({
+    where: { OR: [{ promotionId }, { excludedPromotionId: promotionId }] },
+    select: { promotionId: true, excludedPromotionId: true },
+  });
+  return rows.map((r) => (r.promotionId === promotionId ? r.excludedPromotionId : r.promotionId));
+}
+
+/** Confirms every id in `excludedPromotionIds` is a real promotion owned by
+ * `tenantId`, and that a rule doesn't try to exclude itself. Returns an
+ * error message, or null when everything checks out. */
+export async function validateExclusionOwnership(
+  tenantId: string,
+  promotionId: string | null,
+  excludedPromotionIds: string[]
+): Promise<string | null> {
+  if (excludedPromotionIds.length === 0) return null;
+  if (promotionId && excludedPromotionIds.includes(promotionId)) {
+    return "A promotion cannot be excluded from combining with itself";
+  }
+  const uniqueIds = Array.from(new Set(excludedPromotionIds));
+  const count = await db.promotion.count({ where: { id: { in: uniqueIds }, tenantId } });
+  if (count !== uniqueIds.length) return "One or more excluded promotions not found";
+  return null;
+}
+
+/**
+ * Full-replace sync of `promotionId`'s exclusion set to `desiredOtherIds`
+ * (must run inside the same transaction as the promotion's other scope
+ * writes, same delete-then-recreate pattern as scopeVariants/scopeGroups
+ * in the API routes). Deletes every existing row touching `promotionId`
+ * from either side of the pair, then re-inserts one normalized row per
+ * desired partner.
+ */
+export async function syncPromotionExclusions(
+  tx: TxClient,
+  tenantId: string,
+  promotionId: string,
+  desiredOtherIds: string[]
+): Promise<void> {
+  await tx.promotionExclusion.deleteMany({
+    where: { OR: [{ promotionId }, { excludedPromotionId: promotionId }] },
+  });
+
+  const uniqueOtherIds = Array.from(new Set(desiredOtherIds)).filter((id) => id !== promotionId);
+  if (uniqueOtherIds.length === 0) return;
+
+  const pairs = new Map<string, [string, string]>();
+  for (const otherId of uniqueOtherIds) {
+    const pair = normalizeExclusionPair(promotionId, otherId);
+    pairs.set(pair.join(":"), pair);
+  }
+
+  await tx.promotionExclusion.createMany({
+    data: Array.from(pairs.values()).map(([primaryId, secondaryId]) => ({
+      tenantId,
+      promotionId: primaryId,
+      excludedPromotionId: secondaryId,
+    })),
   });
 }
 
@@ -139,6 +220,14 @@ export async function publishPromotionUpdate(
   options: { deleted: boolean }
 ): Promise<void> {
   const deleted = options.deleted || !promo.isActive;
+  // A deleted/deactivated rule's exclusions are moot from POS's perspective
+  // (there's nothing left to exclude anything from), and — for a hard
+  // DELETE specifically — the rows are already gone by the time this runs
+  // (PromotionExclusion cascades on Promotion delete), so skip the lookup.
+  const excludedPromotionIds = deleted ? [] : await fetchExcludedPromotionIds(promo.id).catch((err) => {
+    console.warn(`[promotions] exclusion lookup failed for ${promo.id}:`, err);
+    return [] as string[];
+  });
   const data: PromotionUpdatedData = {
     promotion_id: promo.id,
     name: promo.name,
@@ -154,6 +243,7 @@ export async function publishPromotionUpdate(
     ...(promo.discountValue != null ? { discount_value: Number(promo.discountValue) } : {}),
     ...(promo.bundlePrice != null ? { bundle_price: Number(promo.bundlePrice) } : {}),
     items: resolvePromotionItems(promo),
+    ...(excludedPromotionIds.length > 0 ? { excluded_promotion_ids: excludedPromotionIds } : {}),
   };
 
   try {
@@ -163,5 +253,22 @@ export async function publishPromotionUpdate(
     // (publishEventSafe); this belt-and-suspenders catch guarantees a bug in
     // event construction itself can never surface as a failed CRUD request.
     console.warn(`[promotions] event publish failed for ${promo.id}:`, err);
+  }
+}
+
+/**
+ * Publishes `discount_policy.updated` for the tenant's current
+ * `discountStackingPolicy` setting. Called whenever that setting is saved
+ * (see api/tenant-settings/route.ts) so Grit POS's offline-first cache
+ * stays in sync — same reasoning as `publishPromotionUpdate` above.
+ */
+export async function publishDiscountPolicyUpdate(
+  tenantId: string,
+  policy: DiscountPolicyUpdatedData["policy"]
+): Promise<void> {
+  try {
+    await publishDiscountPolicyUpdated(tenantId, { policy });
+  } catch (err) {
+    console.warn(`[promotions] discount policy publish failed for tenant ${tenantId}:`, err);
   }
 }

@@ -1,4 +1,5 @@
 import type {
+  DiscountPolicyUpdatedData,
   GritEvent,
   GritEventName,
   InventoryThresholdBreachedData,
@@ -183,4 +184,20 @@ export async function publishPromotionUpdated(
   data: PromotionUpdatedData
 ): Promise<void> {
   await publishEventSafe(sharedEvents.buildEvent("promotion.updated", organizationId, data));
+}
+
+/**
+ * Grit BizSuite pivot (discount resolution policy, BACKLOG.md): published
+ * whenever the tenant's `discountStackingPolicy` setting is saved. Tenant-
+ * wide, so it's a separate small event rather than folded into
+ * `promotion.updated`'s per-rule shape — see DiscountPolicyUpdatedData's
+ * docstring in @grit/shared-events/contracts.
+ */
+export async function publishDiscountPolicyUpdated(
+  organizationId: string,
+  data: DiscountPolicyUpdatedData
+): Promise<void> {
+  await publishEventSafe(
+    sharedEvents.buildEvent("discount_policy.updated", organizationId, data)
+  );
 }

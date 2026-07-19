@@ -10,7 +10,7 @@ import type {
   TenderType,
 } from "@/app/generated/prisma/enums";
 import { eventItemSku } from "@/lib/events";
-import { evaluatePromotions, type PromotionCartLine } from "@/lib/promotions";
+import { evaluatePromotions, normalizeStackingPolicy, type PromotionCartLine } from "@/lib/promotions";
 import { sumDecimals } from "./pricing";
 
 // ---------------------------------------------------------------------------
@@ -23,12 +23,15 @@ import { sumDecimals } from "./pricing";
 
 export const orderInclude = {
   table: { select: { id: true, label: true } },
+  // vatRate feeds the VAT breakdown below (Tenant-level, not hardcoded).
+  tenant: { select: { vatRate: true } },
   lines: {
     orderBy: { id: "asc" },
     include: {
       product: { select: { id: true, name: true } },
       // sku feeds transaction.completed event items (lib/events.ts).
-      variant: { select: { id: true, name: true, sku: true } },
+      // vatApplicable feeds the VAT breakdown below (per-item exempt flag).
+      variant: { select: { id: true, name: true, sku: true, vatApplicable: true } },
       addOns: {
         include: { addOn: { select: { id: true, name: true } } },
       },
@@ -104,6 +107,14 @@ export interface OrderDTO {
   payments: PaymentDTO[];
   /** Sum of every line's lineTotal. Line pricing itself is never discounted in place (see OrderLine.unitPrice doc comment) — promotions are applied below as a distinct order-total adjustment. */
   subtotal: number;
+  /** Tenant's configured VAT rate (percent, e.g. 7 for Thailand's standard rate) at read time — not hardcoded, see Tenant.vatRate. Backs the `vatAmount`/`subtotalExclVat` split below and the receipt's "VAT (n%)" label. */
+  vatRate: number;
+  /** `subtotal` minus `vatAmount` — the VAT-exclusive portion of every line (VAT-applicable lines: price / (1 + vatRate/100); VAT-exempt lines: their full lineTotal), derived at read time, never stored, same "derived, not stored" treatment as `subtotal`. */
+  subtotalExclVat: number;
+  /** Total VAT embedded in VAT-applicable lines' `lineTotal` (prices are VAT-inclusive by default, see Variant.vatApplicable). Zero for lines with `vatApplicable: false`. Feeds `transaction.completed`'s `tax_amount` (lib/events.ts). */
+  vatAmount: number;
+  /** Portion of `subtotal` contributed by VAT-exempt lines (Variant.vatApplicable === false) — itemized separately per Thai tax-invoice (ใบกำกับภาษี) conventions for mixed carts. 0 when the order has no exempt lines. */
+  vatExemptSubtotal: number;
   /** Total of every active PromotionRule that matched the order's current lines (lib/promotions.ts), recomputed on every read (not persisted) — same "derived, not stored" treatment as `subtotal`/`paidTotal`. */
   discountTotal: number;
   /** Per-rule breakdown backing `discountTotal`, for display (e.g. "Promotions" row) and audit. */
@@ -116,7 +127,8 @@ export interface OrderDTO {
 
 /**
  * Fetches the tenant's currently-active PromotionRule cache rows (synced by
- * app/api/events/grit/route.ts) and evaluates them against this order's
+ * app/api/events/grit/route.ts) plus its synced discount-stacking policy
+ * (Tenant.discountStackingPolicy), and evaluates them against this order's
  * lines. SKUs are resolved the same way the outbound `transaction.completed`
  * event resolves them (lib/events.ts `eventItemSku`) so promotion scoping and
  * event reporting always agree on what a line's SKU is.
@@ -130,14 +142,64 @@ export async function computeOrderDiscount(
   const rules = await prisma.promotionRule.findMany({ where: { tenantId, isActive: true } });
   if (rules.length === 0) return { totalDiscount: new Decimal(0), applied: [] };
 
+  const tenant = await prisma.tenant.findUniqueOrThrow({
+    where: { id: tenantId },
+    select: { discountStackingPolicy: true },
+  });
+
   const cartLines: PromotionCartLine[] = lines.map((line) => ({
     sku: eventItemSku({ productId: line.productId, variantSku: line.variant?.sku ?? null }),
     quantity: line.quantity,
     unitPrice: Number(line.unitPrice),
   }));
 
-  const { totalDiscount, applied } = evaluatePromotions(cartLines, rules);
+  const { totalDiscount, applied } = evaluatePromotions(
+    cartLines,
+    rules,
+    normalizeStackingPolicy(tenant.discountStackingPolicy),
+  );
   return { totalDiscount: new Decimal(totalDiscount), applied };
+}
+
+/**
+ * Splits each line's VAT-inclusive `lineTotal` into excl-VAT + VAT portions
+ * using that line's `Variant.vatApplicable` flag (defaulting to `true` — the
+ * same standard-rated default as the Variant model — for lines with no
+ * variant selected) and the tenant's `vatRate`, then sums across lines. Same
+ * "derived, not stored" treatment as `subtotal`/`discountTotal`. Formula
+ * (BACKLOG.md "VAT-inclusive pricing"): exclVat = price / (1 + vatRate/100),
+ * vat = price - exclVat for VAT-applicable lines; exempt lines pass their
+ * full lineTotal through as excl-VAT with 0 VAT.
+ */
+/** Minimal per-line shape `computeOrderVat` needs — deliberately looser than `OrderWithRelations["lines"]` so call sites with a narrower Prisma `select` (e.g. app/api/stripe/webhook/route.ts) can reuse it without over-fetching. */
+export interface VatComputableLine {
+  lineTotal: Decimal;
+  variant: { vatApplicable: boolean } | null;
+}
+
+export function computeOrderVat(
+  lines: VatComputableLine[],
+  vatRate: Decimal,
+): { subtotalExclVat: Decimal; vatAmount: Decimal; vatExemptSubtotal: Decimal } {
+  const divisor = new Decimal(1).plus(vatRate.dividedBy(100));
+
+  let subtotalExclVat = new Decimal(0);
+  let vatAmount = new Decimal(0);
+  let vatExemptSubtotal = new Decimal(0);
+
+  for (const line of lines) {
+    const vatApplicable = line.variant?.vatApplicable ?? true;
+    if (vatApplicable) {
+      const lineExclVat = line.lineTotal.dividedBy(divisor);
+      subtotalExclVat = subtotalExclVat.plus(lineExclVat);
+      vatAmount = vatAmount.plus(line.lineTotal.minus(lineExclVat));
+    } else {
+      subtotalExclVat = subtotalExclVat.plus(line.lineTotal);
+      vatExemptSubtotal = vatExemptSubtotal.plus(line.lineTotal);
+    }
+  }
+
+  return { subtotalExclVat, vatAmount, vatExemptSubtotal };
 }
 
 export async function serializeOrder(order: OrderWithRelations): Promise<OrderDTO> {
@@ -148,6 +210,10 @@ export async function serializeOrder(order: OrderWithRelations): Promise<OrderDT
   );
   const { totalDiscount, applied } = await computeOrderDiscount(order.tenantId, order.lines);
   const balanceDue = clampNonNegative(subtotal.minus(totalDiscount).minus(paidTotal));
+  const { subtotalExclVat, vatAmount, vatExemptSubtotal } = computeOrderVat(
+    order.lines,
+    order.tenant.vatRate,
+  );
 
   return {
     id: order.id,
@@ -182,6 +248,10 @@ export async function serializeOrder(order: OrderWithRelations): Promise<OrderDT
       createdAt: p.createdAt.toISOString(),
     })),
     subtotal: Number(subtotal),
+    vatRate: Number(order.tenant.vatRate),
+    subtotalExclVat: Number(subtotalExclVat),
+    vatAmount: Number(vatAmount),
+    vatExemptSubtotal: Number(vatExemptSubtotal),
     discountTotal: Number(totalDiscount),
     discountsApplied: applied,
     paidTotal: Number(paidTotal),

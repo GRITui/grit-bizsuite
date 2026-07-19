@@ -5,7 +5,12 @@ import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
-import { fetchPromotionScopeById, publishPromotionUpdate } from "@/lib/promotions";
+import {
+  fetchPromotionScopeById,
+  publishPromotionUpdate,
+  syncPromotionExclusions,
+  validateExclusionOwnership,
+} from "@/lib/promotions";
 
 /**
  * Grit BizSuite pivot: pricing/promotion rules admin. SCALE only, reusing
@@ -28,6 +33,10 @@ const baseSchema = z.object({
   isActive: z.boolean().default(true),
   startsAt: z.string().datetime().nullable().optional(),
   endsAt: z.string().datetime().nullable().optional(),
+  /** Discount resolution policy (BACKLOG.md), layer 2: other promotion ids
+   * this rule must never co-apply with on the same order. Applies to every
+   * promotion type — independent of `type`-specific scope fields. */
+  excludedPromotionIds: z.array(z.string().min(1)).default([]),
 });
 
 const buyXPayYSchema = baseSchema
@@ -104,15 +113,42 @@ export async function GET() {
     throw err;
   }
 
-  const promotions = await db.promotion.findMany({
-    where: { tenantId: ctx.local.tenantId },
-    orderBy: { createdAt: "desc" },
-    include: {
-      scopeVariants: { include: { variant: { select: { id: true, sku: true, name: true } } } },
-      scopeGroups: { include: { subGroup: { include: { group: { select: { name: true } } } } } },
-    },
+  const [promotions, exclusions] = await Promise.all([
+    db.promotion.findMany({
+      where: { tenantId: ctx.local.tenantId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        scopeVariants: { include: { variant: { select: { id: true, sku: true, name: true } } } },
+        scopeGroups: { include: { subGroup: { include: { group: { select: { name: true } } } } } },
+      },
+    }),
+    db.promotionExclusion.findMany({
+      where: { tenantId: ctx.local.tenantId },
+      select: { promotionId: true, excludedPromotionId: true },
+    }),
+  ]);
+
+  // Exclusions are stored as one normalized row per undirected pair (see
+  // syncPromotionExclusions); expand back out to "every other id this
+  // promotion is excluded from" for each side of the pair.
+  const exclusionsByPromotionId = new Map<string, string[]>();
+  for (const ex of exclusions) {
+    exclusionsByPromotionId.set(ex.promotionId, [
+      ...(exclusionsByPromotionId.get(ex.promotionId) ?? []),
+      ex.excludedPromotionId,
+    ]);
+    exclusionsByPromotionId.set(ex.excludedPromotionId, [
+      ...(exclusionsByPromotionId.get(ex.excludedPromotionId) ?? []),
+      ex.promotionId,
+    ]);
+  }
+
+  return NextResponse.json({
+    promotions: promotions.map((p) => ({
+      ...p,
+      excludedPromotionIds: exclusionsByPromotionId.get(p.id) ?? [],
+    })),
   });
-  return NextResponse.json({ promotions });
 }
 
 /** POST /api/promotions — create a promotion rule and publish
@@ -140,6 +176,9 @@ export async function POST(request: NextRequest) {
   const scopeError = await validateScopeOwnership(ctx.local.tenantId, variantIds, subGroupIds);
   if (scopeError) return apiError(scopeError, 404);
 
+  const exclusionError = await validateExclusionOwnership(ctx.local.tenantId, null, data.excludedPromotionIds);
+  if (exclusionError) return apiError(exclusionError, 404);
+
   // Dedupe scope variants by variantId (last one supplied wins) so a
   // duplicate pick in the UI can't create two PromotionVariant rows for the
   // same variant.
@@ -147,25 +186,29 @@ export async function POST(request: NextRequest) {
     new Map(data.variantIds.map((v) => [v.variantId, v.requiredQuantity])).entries()
   );
 
-  const promotion = await db.promotion.create({
-    data: {
-      tenantId: ctx.local.tenantId,
-      name: data.name,
-      type: data.type,
-      isActive: data.isActive,
-      startsAt: data.startsAt ? new Date(data.startsAt) : null,
-      endsAt: data.endsAt ? new Date(data.endsAt) : null,
-      buyQuantity: data.type === "buy_x_pay_y" ? data.buyQuantity : null,
-      payQuantity: data.type === "buy_x_pay_y" ? data.payQuantity : null,
-      minQuantity: data.type === "buy_x_get_discount" ? data.minQuantity : null,
-      discountKind: data.type === "buy_x_get_discount" ? data.discountKind : null,
-      discountValue: data.type === "buy_x_get_discount" ? data.discountValue : null,
-      bundlePrice: data.type === "bundle_deal" ? data.bundlePrice : null,
-      scopeVariants: {
-        create: dedupedVariants.map(([variantId, requiredQuantity]) => ({ variantId, requiredQuantity })),
+  const promotion = await db.$transaction(async (tx) => {
+    const created = await tx.promotion.create({
+      data: {
+        tenantId: ctx.local.tenantId,
+        name: data.name,
+        type: data.type,
+        isActive: data.isActive,
+        startsAt: data.startsAt ? new Date(data.startsAt) : null,
+        endsAt: data.endsAt ? new Date(data.endsAt) : null,
+        buyQuantity: data.type === "buy_x_pay_y" ? data.buyQuantity : null,
+        payQuantity: data.type === "buy_x_pay_y" ? data.payQuantity : null,
+        minQuantity: data.type === "buy_x_get_discount" ? data.minQuantity : null,
+        discountKind: data.type === "buy_x_get_discount" ? data.discountKind : null,
+        discountValue: data.type === "buy_x_get_discount" ? data.discountValue : null,
+        bundlePrice: data.type === "bundle_deal" ? data.bundlePrice : null,
+        scopeVariants: {
+          create: dedupedVariants.map(([variantId, requiredQuantity]) => ({ variantId, requiredQuantity })),
+        },
+        scopeGroups: { create: subGroupIds.map((subGroupId) => ({ subGroupId })) },
       },
-      scopeGroups: { create: subGroupIds.map((subGroupId) => ({ subGroupId })) },
-    },
+    });
+    await syncPromotionExclusions(tx, ctx.local.tenantId, created.id, data.excludedPromotionIds);
+    return created;
   });
 
   const scoped = await fetchPromotionScopeById(promotion.id);

@@ -198,8 +198,8 @@ actually points at.
 
 | Item | Status |
 |---|---|
-| Full SSO still a bridge, not real | **Deferred** — architect judgment: high effort/risk, low actual unlock value (apps deliberately keep separate DBs regardless of session unification); no other backlog item depends on it |
-| POS synthetic SKU fallback / Inventory matching | **Visibility stopgap shipped** (Wave 3/4, approach 3 of the Wave 1 scoping doc) — mismatch itself still unfixed by design; the silence is closed via `UnmatchedSaleItem` + delivery-failure logging. Real fix (approach 2, shared catalog identity) remains its own dedicated future pass |
+| Full SSO still a bridge, not real | **Shipped for grit-pos + grit-inventory** (Wave 5) — both mint/verify the real shared `grit_passport` cookie. `grit-taskboard` explicitly excluded: its Stripe-billing/teams account model is structurally unrelated to the `organizationId`/`Tenant` model the other apps share; needs its own dedicated pass, not a drop-in |
+| POS synthetic SKU fallback / Inventory matching | **Real fix shipped** (Wave 5, approach 2) — `catalog.variant_synced` event + `Variant.inventoryVariantId` durable join key, id-match-first webhook lookup. The Wave 3/4 visibility stopgap (`UnmatchedSaleItem`) stays as the fallback for lines that never got synced |
 | No Location model in POS | **Shipped** (Wave 3/4) — minimal `Store` model + `Order.storeId`, migration not yet applied to a live DB |
 | Parcel labels decorative, not scannable | **Shipped** (Wave 3/4) — real Code 128 encoder; carrier integration still open |
 | Pick/pack/label mutations have no ADMIN gate | **Resolved as "intentionally ungated"** after the Wave 1 revert — see Bugs Caught above |
@@ -225,23 +225,29 @@ actually points at.
    route handlers / anything Prisma-coupled remain untested — a live-DB
    test fixture (e.g. a shared `@grit/database` test-db helper) would be
    the natural next increment if deeper coverage is wanted.
-2. ~~**POS ↔ Inventory SKU alignment.**~~ **Visibility stopgap done** (Wave
-   3/4, approach 3). The real fix — a shared catalog-identity mechanism
-   (approach 2) — is still open and is its own dedicated epic, not a small
-   follow-up: it requires a new Inventory→POS catalog-sync event and an
-   answer to "which app owns the canonical catalog," neither of which
-   exists today.
-3. **Turbopack cleanup** (P2) turned out **not** to be the cheap mechanical
+2. ~~**POS ↔ Inventory SKU alignment.**~~ **Done** (Wave 5, approach 2 — the
+   real fix, not just the Wave 3/4 visibility stopgap). `catalog.variant_synced`
+   + `Variant.inventoryVariantId` is the durable join key now; the stopgap
+   stays as a fallback for never-synced lines.
+3. ~~**Full SSO.**~~ **Done for grit-pos + grit-inventory** (Wave 5).
+   `grit-taskboard` needs its own dedicated pass — its Stripe-billing/teams
+   account model doesn't map onto `organizationId`/`Tenant`.
+4. **Turbopack cleanup** (P2) turned out **not** to be the cheap mechanical
    fix this doc originally assumed — see the updated `BACKLOG.md` P2 entry.
    Needs an architect-level direction pick (pre-compile packages to JS vs.
    extensionless imports vs. stay on webpack) before any further work, not
    a Haiku sweep.
-4. Both new Wave 3/4 migrations (`grit-inventory`'s `UnmatchedSaleItem`,
-   `grit-pos`'s `Store`/`Order.storeId`) need to be verified against a real
-   or shadow database before deploying — they were hand-written in a
-   sandbox with no reachable `DATABASE_URL`, same known gap as Wave 1/2.
-5. Everything else in the P1/P2 tables above is either genuinely deferred
-   (SSO) or low-urgency enough to leave as documented debt (`Bundle`/
+5. **Bundle/BundleComponent removal** (P2) needs the user to explicitly name
+   those tables before any agent attempts the `DROP TABLE` migration again —
+   a Wave 5 attempt was correctly blocked by a safety classifier since it
+   was inferred from a backlog note, not user-named.
+6. All Wave 3/4/5 migrations (`grit-inventory`'s `UnmatchedSaleItem`,
+   `grit-pos`'s `Store`/`Order.storeId` and `Variant.inventoryVariantId`)
+   need to be verified against a real or shadow database before deploying —
+   they were hand-written in a sandbox with no reachable `DATABASE_URL`,
+   same known gap as every wave so far.
+7. Everything else in the P1/P2 tables above is low-urgency enough to leave
+   as documented debt (`Bundle`/
    `BundleComponent` cleanup, carrier integration for parcel labels).
 
 ---

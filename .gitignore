@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# turbo
+.turbo/
+
+# next.js build output
+.next/
+out/
+
+# env files (opt back in for examples)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# generated prisma clients
+apps/grit-pos/app/generated/prisma
+apps/grit-inventory/src/generated/prisma
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*

@@ -1,0 +1,22 @@
+{
+  "name": "grit-bizsuite",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Grit BizSuite — API-first monorepo for SMEs: POS, multi-location inventory, operations taskboard, and cross-app reporting.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5"
+  },
+  "packageManager": "npm@10.9.7"
+}

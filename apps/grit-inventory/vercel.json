@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand": "cd ../.. && npm run build --workspace=invento",
+  "outputDirectory": ".next",
   "crons": [
     { "path": "/api/cron/restock-alert", "schedule": "0 8 * * *" },
     { "path": "/api/cron/forecast-recompute", "schedule": "0 2 * * *" },

@@ -90,8 +90,8 @@ export default async function handler(request) {
   const cogsTotal = inventoryResult.ok ? toNumber(inventoryBody.total_cogs, 0) : 0;
   const cogsRowsCount =
     inventoryResult.ok && Array.isArray(inventoryBody.rows) ? inventoryBody.rows.length : 0;
-  const cogsDaily =
-    inventoryResult.ok && Array.isArray(inventoryBody.daily) ? inventoryBody.daily : [];
+  const hasCogsDaily = inventoryResult.ok && Array.isArray(inventoryBody.daily);
+  const cogsDaily = hasCogsDaily ? inventoryBody.daily : [];
 
   const marginTotal = Number((revenueTotal - cogsTotal).toFixed(2));
   const marginPct =
@@ -100,7 +100,9 @@ export default async function handler(request) {
   // Merge the two upstream daily series by calendar date. grit-inventory's
   // /api/reports/cogs now returns a continuous per-day series (see
   // route.ts), so cogs/margin are populated whenever that upstream call
-  // succeeded; they stay null (never a faked even split) when it didn't.
+  // succeeded AND actually returned a `daily` series; they stay null
+  // (never a faked even split, never a faked zero) when the call failed
+  // or the upstream didn't include per-day data at all.
   const revenueByDate = new Map();
   for (const d of revenueDaily) {
     const date = typeof d?.date === "string" ? d.date : typeof d?.day === "string" ? d.day : null;
@@ -115,7 +117,7 @@ export default async function handler(request) {
   const allDates = [...new Set([...revenueByDate.keys(), ...cogsByDate.keys()])].sort();
   const daily = allDates.map((date) => {
     const revenue = revenueByDate.has(date) ? revenueByDate.get(date) : 0;
-    const cogs = inventoryResult.ok ? cogsByDate.get(date) ?? 0 : null;
+    const cogs = hasCogsDaily ? cogsByDate.get(date) ?? 0 : null;
     const margin = cogs === null ? null : Number((revenue - cogs).toFixed(2));
     return { date, revenue, cogs, margin };
   });

@@ -619,10 +619,14 @@ model ItemSubGroup {
 
 /// Planogram slot: where a variant physically lives within a store (aisle /
 /// shelf / bin). A variant may have more than one row per store (forward-pick
-/// + bulk-reserve); `isPrimary` marks the one picking should default to. Not
-/// DB-uniqueness-enforced (Prisma has no partial unique index) — application
-/// code treats the first isPrimary=true row per (storeId, variantId) as
-/// canonical and the API rejects creating a second primary explicitly.
+/// + bulk-reserve); `isPrimary` marks the one picking should default to.
+/// Application code (variant-locations routes) flips any existing primary
+/// row for the same (storeId, variantId) to false before setting a new one,
+/// and that exclusivity is additionally enforced at the DB level by a
+/// partial unique index — `VariantLocation_variantId_storeId_primary_key` in
+/// migration 20260719003027_variant_location_primary_unique — since Prisma's
+/// declarative schema DSL can't express a partial (WHERE isPrimary = true)
+/// unique index directly.
 model VariantLocation {
   id        String   @id @default(cuid())
   tenantId  String

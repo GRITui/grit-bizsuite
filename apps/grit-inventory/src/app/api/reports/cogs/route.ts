@@ -119,6 +119,7 @@ export async function GET(request: NextRequest) {
     string,
     { units: number; cost: number; fallbackUnits: number }
   >();
+  const byDay = new Map<string, number>();
   for (const c of consumptions) {
     // Transfers move cost between stores; they are not cost of goods SOLD.
     if (c.movement.reason === "transfer_out") continue;
@@ -127,6 +128,28 @@ export async function GET(request: NextRequest) {
     agg.cost += c.quantity * Number(c.unitCost);
     if (c.lotId === null) agg.fallbackUnits += c.quantity;
     byVariant.set(c.variantId, agg);
+
+    const dayKey = c.createdAt.toISOString().slice(0, 10);
+    byDay.set(dayKey, (byDay.get(dayKey) ?? 0) + c.quantity * Number(c.unitCost));
+  }
+
+  // Continuous per-day series covering every calendar day in [from, toExclusive),
+  // including zero-cogs days, so grit-reports can chart a trend line.
+  const daily: { date: string; cogs: number }[] = [];
+  const lastDayMs = toExclusive.getTime() - 1;
+  if (lastDayMs >= from.getTime()) {
+    const cursor = new Date(
+      Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate())
+    );
+    const lastDay = new Date(lastDayMs);
+    const endCursor = new Date(
+      Date.UTC(lastDay.getUTCFullYear(), lastDay.getUTCMonth(), lastDay.getUTCDate())
+    );
+    while (cursor.getTime() <= endCursor.getTime()) {
+      const dayKey = cursor.toISOString().slice(0, 10);
+      daily.push({ date: dayKey, cogs: Number((byDay.get(dayKey) ?? 0).toFixed(2)) });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
   }
 
   const rows = [...byVariant.entries()]
@@ -153,5 +176,6 @@ export async function GET(request: NextRequest) {
     to: to.toISOString(),
     total_cogs: Number(rows.reduce((sum, r) => sum + r.fifo_cogs, 0).toFixed(2)),
     rows,
+    daily,
   });
 }

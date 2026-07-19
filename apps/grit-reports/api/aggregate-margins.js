@@ -15,8 +15,10 @@
  *     This one exists today (apps/grit-inventory/src/app/api/reports/cogs/
  *     route.ts) — response shape: { from, to, total_cogs, rows: [{ sku,
  *     product, variant, units_consumed, fifo_cogs, avg_unit_cost,
- *     fallback_units }] }. It reports a period TOTAL only, no daily
- *     breakdown, which is why `daily[].cogs`/`margin` below are always null.
+ *     fallback_units }], daily: [{ date, cogs }] }. `daily` is a continuous
+ *     per-calendar-day series (zero-cogs days included) covering
+ *     [from, toExclusive), which is what lets `daily[].cogs`/`margin` below
+ *     be populated instead of null.
  *
  * Gated behind the custom_reporting addon (Grit Passport JWT, bearer or
  * `grit_passport` cookie) — see lib/passportVerify.js.
@@ -88,22 +90,35 @@ export default async function handler(request) {
   const cogsTotal = inventoryResult.ok ? toNumber(inventoryBody.total_cogs, 0) : 0;
   const cogsRowsCount =
     inventoryResult.ok && Array.isArray(inventoryBody.rows) ? inventoryBody.rows.length : 0;
+  const cogsDaily =
+    inventoryResult.ok && Array.isArray(inventoryBody.daily) ? inventoryBody.daily : [];
 
   const marginTotal = Number((revenueTotal - cogsTotal).toFixed(2));
   const marginPct =
     revenueTotal !== 0 ? Number(((marginTotal / revenueTotal) * 100).toFixed(2)) : null;
 
-  // Daily series is only as good as the POS side — inventory COGS has no
-  // per-day breakdown (see route.ts), so daily cogs/margin stay null rather
-  // than faking an even split across days.
-  const daily = revenueDaily
-    .map((d) => ({
-      date: typeof d?.date === "string" ? d.date : typeof d?.day === "string" ? d.day : null,
-      revenue: toNumber(d?.revenue ?? d?.total, 0),
-      cogs: null,
-      margin: null,
-    }))
-    .filter((d) => d.date !== null);
+  // Merge the two upstream daily series by calendar date. grit-inventory's
+  // /api/reports/cogs now returns a continuous per-day series (see
+  // route.ts), so cogs/margin are populated whenever that upstream call
+  // succeeded; they stay null (never a faked even split) when it didn't.
+  const revenueByDate = new Map();
+  for (const d of revenueDaily) {
+    const date = typeof d?.date === "string" ? d.date : typeof d?.day === "string" ? d.day : null;
+    if (date === null) continue;
+    revenueByDate.set(date, toNumber(d?.revenue ?? d?.total, 0));
+  }
+  const cogsByDate = new Map();
+  for (const d of cogsDaily) {
+    if (typeof d?.date !== "string") continue;
+    cogsByDate.set(d.date, toNumber(d?.cogs, 0));
+  }
+  const allDates = [...new Set([...revenueByDate.keys(), ...cogsByDate.keys()])].sort();
+  const daily = allDates.map((date) => {
+    const revenue = revenueByDate.has(date) ? revenueByDate.get(date) : 0;
+    const cogs = inventoryResult.ok ? cogsByDate.get(date) ?? 0 : null;
+    const margin = cogs === null ? null : Number((revenue - cogs).toFixed(2));
+    return { date, revenue, cogs, margin };
+  });
 
   return jsonResponse({
     from,
@@ -112,9 +127,6 @@ export default async function handler(request) {
     cogs: { total: Number(cogsTotal.toFixed(2)), rows_count: cogsRowsCount },
     margin: { total: marginTotal, pct: marginPct },
     daily,
-    daily_note:
-      "Per-day COGS/margin are not computable: grit-inventory's /api/reports/cogs " +
-      "reports only a period total, no daily breakdown.",
     upstream: { pos: posResult.marker, inventory: inventoryResult.marker },
   });
 }

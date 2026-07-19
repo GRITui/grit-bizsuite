@@ -486,6 +486,7 @@ const BUSINESS_TYPES = {
   laundry:    { label:'Laundry service',   unitWord:'Order',   seedServices:[['Wash & fold',150,'kg'],['Dry cleaning',80,'item']] },
   insurance:  { label:'Insurance agent',   unitWord:'Policy',  seedServices:[['Policy review',0,'review'],['Claim assistance',0,'case']] },
   garage:     { label:'Car garage',        unitWord:'Job',     seedServices:[['Oil change',600,'job'],['Full service',2500,'job']] },
+  trading:    { label:'Trading / wholesale company', unitWord:'Order', seedServices:[['Bulk order fulfillment',5000,'order'],['Delivery / logistics coordination',500,'trip'],['Custom sourcing',0,'request']] },
   custom:     { label:'Other',             unitWord:'Job',     seedServices:[] },
 };
 function businessType() { return BUSINESS_TYPES[settings && settings.businessType] ? settings.businessType : 'trainer'; }
@@ -497,7 +498,7 @@ function unitWord() { return BUSINESS_TYPES[businessType()].unitWord; }
 // this registry doesn't know about yet still works with zero code changes —
 // the user just types whatever word fits.
 const PACKAGE_UNIT_DEFAULTS = {
-  trainer: 'Sessions', realestate: 'Deals', laundry: 'Pieces', insurance: 'Policies', garage: 'Jobs', custom: 'Units',
+  trainer: 'Sessions', realestate: 'Deals', laundry: 'Pieces', insurance: 'Policies', garage: 'Jobs', trading: 'Orders', custom: 'Units',
 };
 function packageUnitLabel() {
   return (settings && settings.packageUnitLabel) || PACKAGE_UNIT_DEFAULTS[businessType()] || 'Units';
@@ -732,6 +733,7 @@ const I18N = {
     daily_goal:'Daily income goal', goal_target_month:'Monthly income goal', goal_target_quarter:'Quarterly income goal', goal_target_year:'Yearly income goal',
     business_type_label:'Business type', business_type_trainer:'Personal trainer', business_type_realestate:'Real estate agent',
     business_type_laundry:'Laundry service', business_type_insurance:'Insurance agent', business_type_garage:'Car garage',
+    business_type_trading:'Trading / wholesale company',
     business_type_custom:'Other',
     onboard_persona_title:'What kind of business do you run?', onboard_persona_sub:'Pick the closest match — we’ll set up starting services for it. You can change this anytime in Settings.',
     subtasks_title:'Sub-tasks', subtask_add_ph:'Add a sub-task…', btn_add:'+ Add', no_subtasks:'No sub-tasks yet.',
@@ -1142,6 +1144,7 @@ const I18N = {
     daily_goal:'เป้าหมายรายได้ต่อวัน', goal_target_month:'เป้าหมายรายได้ต่อเดือน', goal_target_quarter:'เป้าหมายรายได้ต่อไตรมาส', goal_target_year:'เป้าหมายรายได้ต่อปี',
     business_type_label:'ประเภทธุรกิจ', business_type_trainer:'เทรนเนอร์ส่วนตัว', business_type_realestate:'นายหน้าอสังหาริมทรัพย์',
     business_type_laundry:'ร้านซักรีด', business_type_insurance:'ตัวแทนประกันภัย', business_type_garage:'อู่ซ่อมรถ',
+    business_type_trading:'ธุรกิจซื้อมาขายไป / ค้าส่ง',
     business_type_custom:'อื่นๆ',
     onboard_persona_title:'ธุรกิจของคุณเป็นแบบไหน?', onboard_persona_sub:'เลือกที่ใกล้เคียงที่สุด — เราจะตั้งค่าบริการเริ่มต้นให้ คุณเปลี่ยนได้ทุกเมื่อในการตั้งค่า',
     subtasks_title:'งานย่อย', subtask_add_ph:'เพิ่มงานย่อย…', btn_add:'+ เพิ่ม', no_subtasks:'ยังไม่มีงานย่อย',
@@ -3155,6 +3158,38 @@ const DEMO_PERSONA_DATA = {
       { clientIndex: 2, title: 'Fleet service', daysOffset: 2, startTime: '08:00', durationMin: 180 },
     ],
   },
+  trading: {
+    clients: [
+      { name: 'Siam Grocers Co., Ltd.', phone: '081-789-0121', email: 'purchasing@siamgrocers.example', tags: 'wholesale',
+        notes: 'Standing weekly order, net-30 terms' },
+      { name: 'Baan Suan Restaurant Group', phone: '081-789-0122', tags: 'repeat buyer',
+        notes: 'Orders for 4 branches, prefers Friday deliveries' },
+      { name: 'Prayad Hardware', phone: '081-789-0123', tags: 'new lead',
+        notes: 'Requested pricing for a first trial order' },
+      { name: 'Ruamjai Minimart', phone: '081-789-0124', tags: 'regular',
+        notes: 'Small biweekly restock orders' },
+      { name: 'Chonburi Export Trading', phone: '081-789-0125', tags: 'export partner',
+        notes: 'Sources for re-export, needs customs paperwork with each shipment' },
+    ],
+    jobs: [
+      { clientIndex: 2, stage: 'pitch', daysOffset: 0, amount: 0, serviceName: 'Custom sourcing', notes: 'Trial order inquiry — pricing sent' },
+      { clientIndex: 4, stage: 'quote', daysOffset: -1, amount: 32000, serviceName: 'Bulk order fulfillment', notes: 'Quoted export batch, awaiting PO' },
+      { clientIndex: 1, stage: 'invoice', daysOffset: -2, amount: 18500, count: 4, serviceName: 'Bulk order fulfillment', notes: 'Weekly restock across 4 branches' },
+      { clientIndex: 0, stage: 'paid', daysOffset: -4, amount: 21000, serviceName: 'Bulk order fulfillment' },
+      { clientIndex: 3, stage: 'delivery', daysOffset: -1, amount: 6500, serviceName: 'Delivery / logistics coordination', notes: 'Out for delivery today' },
+      { clientIndex: 0, stage: 'extend', daysOffset: -30, amount: 21000, serviceName: 'Bulk order fulfillment', complete: true, outcome: 'extended', notes: 'Renewed standing weekly order' },
+    ],
+    invoices: [
+      { clientIndex: 1, daysOffset: -2, status: 'draft', lineItems: [{ description: 'Bulk order fulfillment — 4 branches', qty: 1, unitPrice: 18500 }] },
+      { clientIndex: 4, daysOffset: -1, status: 'sent', lineItems: [{ description: 'Bulk order fulfillment — export batch', qty: 1, unitPrice: 32000 }] },
+      { clientIndex: 0, daysOffset: -4, status: 'paid', lineItems: [{ description: 'Bulk order fulfillment — weekly standing order', qty: 1, unitPrice: 21000 }, { description: 'Delivery / logistics coordination', qty: 2, unitPrice: 500 }] },
+    ],
+    bookings: [
+      { clientIndex: 3, title: 'Delivery run', daysOffset: 0, startTime: '08:00', durationMin: 90 },
+      { clientIndex: 1, title: 'Branch restock delivery', daysOffset: 1, startTime: '07:30', durationMin: 120 },
+      { clientIndex: 2, title: 'Trial order pickup', daysOffset: 2, startTime: '13:00', durationMin: 30 },
+    ],
+  },
 };
 
 async function startSubscriptionCheckout(plan) {
@@ -5156,6 +5191,12 @@ async function saveClientField(clientId, field, value) {
 }
 window.saveClientField = saveClientField;
 
+// 'trading' has no entry here (same reasoning as 'custom') — a bulk-order/
+// wholesale tracker (PO log, delivery manifests, credit terms) is its own
+// small CRUD system like the four below, not something to bolt on in this
+// pass. openEditCustomer() reads this map's membership to decide whether to
+// show the persona-tracker section at all, so trading correctly gets no
+// empty section rather than a blank one.
 const PERSONA_TRACKER_TITLES = {
   trainer: 'tracker_mealplan_title',
   realestate: 'tracker_deal_title',
@@ -6168,15 +6209,16 @@ function openEditCustomer(id) {
   // persona also gets its own tracker section below (see the registry
   // above renderClientPersonaTracker()).
   const isTrainer = businessType() === 'trainer';
-  const isCustom = businessType() === 'custom';
+  // 'custom' and 'trading' have no persona-specific tracker (see
+  // PERSONA_TRACKER_TITLES) — hide the section entirely rather than render
+  // it empty, instead of hardcoding each no-tracker persona by name here.
+  const hasPersonaTracker = !!PERSONA_TRACKER_TITLES[businessType()];
   document.getElementById('cust-package-section').style.display = 'block';
   document.getElementById('cust-progress-section').style.display = isTrainer ? 'block' : 'none';
-  // 'custom' has no persona-specific tracker (see PERSONA_TRACKER_TITLES) —
-  // hide the section entirely rather than render it empty.
-  document.getElementById('cust-persona-section').style.display = isCustom ? 'none' : 'block';
+  document.getElementById('cust-persona-section').style.display = hasPersonaTracker ? 'block' : 'none';
   renderCustomerPackages(id);
   if (isTrainer) renderCustomerProgress(id);
-  if (!isCustom) renderClientPersonaTracker(id);
+  if (hasPersonaTracker) renderClientPersonaTracker(id);
   document.getElementById('c-delete').style.display = 'block';
   clearFieldErrors();
   openCustomerModal();

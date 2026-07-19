@@ -121,17 +121,46 @@
     }
     const daily = Array.isArray(marginsBody.daily) ? marginsBody.daily : [];
     if (typeof Chart === "undefined" || daily.length === 0) return;
+    // Revenue/COGS as grouped bars, margin as an overlaid trend line — the
+    // /api/aggregate-margins `daily[].cogs`/`margin` series is only
+    // non-null when the grit-inventory upstream call succeeded (see
+    // aggregate-margins.js), so those two datasets are omitted rather than
+    // drawn as a flat zero line when it didn't.
+    const hasCogs = daily.some((d) => d.cogs !== null && d.cogs !== undefined);
+    const hasMargin = daily.some((d) => d.margin !== null && d.margin !== undefined);
+    const datasets = [
+      {
+        type: "bar",
+        label: "Revenue",
+        data: daily.map((d) => d.revenue),
+        backgroundColor: "#2d6cdf",
+      },
+    ];
+    if (hasCogs) {
+      datasets.push({
+        type: "bar",
+        label: "COGS",
+        data: daily.map((d) => d.cogs),
+        backgroundColor: "#df4b4b",
+      });
+    }
+    if (hasMargin) {
+      datasets.push({
+        type: "line",
+        label: "Margin",
+        data: daily.map((d) => d.margin),
+        borderColor: "#2ddf8a",
+        backgroundColor: "#2ddf8a",
+        fill: false,
+        tension: 0.25,
+        yAxisID: "y",
+      });
+    }
     chart = new Chart(canvas.getContext("2d"), {
       type: "bar",
       data: {
         labels: daily.map((d) => d.date),
-        datasets: [
-          {
-            label: "Revenue",
-            data: daily.map((d) => d.revenue),
-            backgroundColor: "#2d6cdf",
-          },
-        ],
+        datasets,
       },
       options: {
         responsive: true,

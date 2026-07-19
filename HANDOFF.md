@@ -211,7 +211,7 @@ actually points at.
 | Item | Status |
 |---|---|
 | `VariantLocation.isPrimary` no DB constraint | **Shipped** (Wave 1), now also unit-tested (Wave 3/4) |
-| `Bundle`/`BundleComponent` stub unused | **Open**, not urgent |
+| `Bundle`/`BundleComponent` stub unused | **Confirmed intentional** — deliberate M2 forward-compat scaffolding per the schema's own comment; user explicitly chose to keep it, not cleanup debt |
 | No public storefront/courier/ML forecasting | **Explicitly out of scope**, do not schedule |
 | Turbopack can't resolve shared-package specifiers (webpack pinned) | **Investigated (Wave 3/4), hypothesis disproven** — the "add `.js` extensions" fix doesn't work; needs an architect direction-pick between 3 real options (see `BACKLOG.md`), not a mechanical sweep |
 
@@ -237,18 +237,21 @@ actually points at.
    Needs an architect-level direction pick (pre-compile packages to JS vs.
    extensionless imports vs. stay on webpack) before any further work, not
    a Haiku sweep.
-5. **Bundle/BundleComponent removal** (P2) needs the user to explicitly name
-   those tables before any agent attempts the `DROP TABLE` migration again —
-   a Wave 5 attempt was correctly blocked by a safety classifier since it
-   was inferred from a backlog note, not user-named.
+5. **Bundle/BundleComponent removal** — resolved, no removal happening. A
+   Wave 5 attempt to drop these tables was correctly blocked by a safety
+   classifier since it was inferred from a stale backlog note, not
+   user-named. The user later explicitly named the tables for removal, but
+   once shown the schema's own comment documenting them as deliberate M2
+   forward-compat scaffolding (not dead code), chose to keep them as-is.
+   Leave alone; do not resurface as cleanup debt.
 6. All Wave 3/4/5 migrations (`grit-inventory`'s `UnmatchedSaleItem`,
    `grit-pos`'s `Store`/`Order.storeId` and `Variant.inventoryVariantId`)
    need to be verified against a real or shadow database before deploying —
    they were hand-written in a sandbox with no reachable `DATABASE_URL`,
    same known gap as every wave so far.
 7. Everything else in the P1/P2 tables above is low-urgency enough to leave
-   as documented debt (`Bundle`/
-   `BundleComponent` cleanup, carrier integration for parcel labels).
+   as documented debt (carrier integration for parcel labels). `Bundle`/
+   `BundleComponent` is intentional scaffolding, not debt — see item 5.
 
 ---
 

@@ -350,10 +350,13 @@ invent that channel, not just extend one that already exists.
 - ~~`VariantLocation.isPrimary` is app-enforced only, no DB constraint~~
   **Shipped** (Wave 1) — partial unique index in place, and now also
   covered by unit tests (Wave 3) for the app-side demotion-clause logic.
-- Grit-inventory's original `Bundle`/`BundleComponent` model (build-to-sell
-  composite SKUs, from the M1 handoff) remains stubbed and unused — a
-  different concept from the new `bundle_deal` promotion type. **Open, not
-  urgent.**
+- ~~Grit-inventory's original `Bundle`/`BundleComponent` model~~ **Not a
+  cleanup item — confirmed intentional.** The schema's own comment says
+  it's deliberate forward-compat scaffolding, stubbed per the M1 handoff
+  specifically so Milestone 2 (build-to-sell composite SKUs — a different
+  concept from the `bundle_deal` promotion type) won't need a destructive
+  migration when built. Considered for removal and explicitly kept as-is
+  by the user once this was surfaced. Leave it alone.
 - No public storefront/checkout for Inventory, no real courier integration
   for Deliveries, no ML forecasting (still naive moving-average) — all
   called out as **explicitly out of scope**, do not schedule.

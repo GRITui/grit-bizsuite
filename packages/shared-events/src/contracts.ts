@@ -14,6 +14,7 @@ export const EVENT_NAMES = [
   "task.completed",
   "promotion.updated",
   "discount_policy.updated",
+  "catalog.variant_synced",
 ] as const;
 
 export type GritEventName = (typeof EVENT_NAMES)[number];
@@ -45,6 +46,12 @@ export interface TransactionCompletedData {
     sku: string;
     quantity: number;
     price: number;
+    /** Inventory's canonical Variant id, when POS has synced one via
+     * catalog.variant_synced (see CatalogVariantSyncedData) — the real join
+     * key once present. Absent for lines POS never got a sync for (e.g. a
+     * hospitality item with no discrete inventory unit); Inventory's webhook
+     * handler falls back to `sku` string-matching in that case. */
+    inventory_variant_id?: string;
   }>;
 }
 export type TransactionCompletedEvent = GritEventEnvelope<
@@ -167,6 +174,33 @@ export type DiscountPolicyUpdatedEvent = GritEventEnvelope<
   DiscountPolicyUpdatedData
 >;
 
+/**
+ * Emitted by Grit Inventory whenever a Variant's canonical identity changes
+ * (created, or its `sku` is renamed) — the real fix for the POS<->Inventory
+ * SKU-alignment gap (see BACKLOG.md's P1 scoping doc, approach 2). Today's
+ * cross-app stock decrement matches purely on SKU string, which silently
+ * breaks the moment either side's SKU is missing or the two copies drift out
+ * of sync. Inventory owns the canonical catalog identity: this event pushes
+ * `inventory_variant_id` + the current `sku` to POS, which stores the id
+ * once (`Variant.inventoryVariantId`) and treats it as the durable join key
+ * going forward — `transaction.completed` items carry both `sku` (fallback,
+ * unchanged) and this id when known, and Inventory's webhook handler tries
+ * an id match first, only falling back to the SKU-string lookup when no id
+ * is present (e.g. a pre-sync sale).
+ */
+export interface CatalogVariantSyncedData {
+  inventory_variant_id: string;
+  sku: string;
+  product_name: string;
+  /** True when this variant no longer exists on the Inventory side (e.g.
+   * deleted/discontinued) — POS should stop offering it, not just re-cache. */
+  deleted?: boolean;
+}
+export type CatalogVariantSyncedEvent = GritEventEnvelope<
+  "catalog.variant_synced",
+  CatalogVariantSyncedData
+>;
+
 export type GritEvent =
   | TransactionCompletedEvent
   | InventoryThresholdBreachedEvent
@@ -174,7 +208,8 @@ export type GritEvent =
   | PosVelocitySurgeEvent
   | TaskCompletedEvent
   | PromotionUpdatedEvent
-  | DiscountPolicyUpdatedEvent;
+  | DiscountPolicyUpdatedEvent
+  | CatalogVariantSyncedEvent;
 
 /* ------------------------------------------------------------------ */
 /* Runtime validation (dependency-free so no-build JS apps can mirror it) */
@@ -261,6 +296,12 @@ const DATA_VALIDATORS: Record<GritEventName, (d: unknown) => boolean> = {
     isRecord(d) &&
     typeof d.policy === "string" &&
     ["NO_STACKING", "STACK_ALL"].includes(d.policy),
+  "catalog.variant_synced": (d) =>
+    isRecord(d) &&
+    isNonEmptyString(d.inventory_variant_id) &&
+    isNonEmptyString(d.sku) &&
+    isNonEmptyString(d.product_name) &&
+    (d.deleted === undefined || typeof d.deleted === "boolean"),
 };
 
 export function isGritEventName(v: unknown): v is GritEventName {

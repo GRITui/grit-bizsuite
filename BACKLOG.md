@@ -164,26 +164,30 @@ tenant-wide switch.
 
 ## P1 — documented design decisions worth revisiting
 
-- **Full SSO is still a bridge, not real.** Every app derives a
-  `GritSession` from its own existing login rather than sharing one
-  session; a user logs into POS and Inventory separately even though
-  `@grit/passport`'s session shape is already unified across apps.
-  **Deferred** — architect judgment: high effort/risk, low actual unlock
-  value (apps deliberately keep separate DBs regardless of session
-  unification); no other backlog item depends on it. Not scheduled unless
-  priorities change.
-- ~~**POS's synthetic SKU fallback**~~ **Partially shipped — approach 3
-  (visibility stopgap), not approach 2 (real shared identity).** The
-  SKU-string mismatch itself is unchanged (still `PRD-<internal-id>` when a
-  line has no variant SKU, still silently un-matchable against Inventory's
-  `tenantId_sku` lookup) — but the *silence* is fixed on both ends: Inventory
-  now writes a persistent `UnmatchedSaleItem` row (tenant, sku, quantity,
-  order reference, event id) instead of only an ephemeral in-memory
-  `warnings` string, with a `/admin/unmatched-sales` queue to review/resolve
-  them by hand; POS's `publishTransactionCompleted` now surfaces the event
-  bus's `PublishResult` and logs a structured warning on delivery failure
-  instead of discarding it. A real fix (shared catalog identity, approach 2)
-  is still its own dedicated future pass — see the full scoping doc below.
+- ~~**Full SSO is still a bridge, not real.**~~ **Shipped for grit-pos +
+  grit-inventory.** Both now mint/verify the real shared `grit_passport`
+  cookie via `@grit/passport`'s existing `session.ts` primitives, replacing
+  each app's separate `horeca_session`/`invento_session` cookie —
+  `lib/passportBridge.ts`'s own doc comment had named this as the eventual
+  next step. `grit-reports` already consumed the shared cookie (built
+  earlier). **`grit-taskboard` is deliberately excluded** — its account
+  model (Stripe billing, teams, `cuid`-based users) is structurally
+  unrelated to the `organizationId`/`Tenant` model the other three apps
+  share; forcing it in would be a fake unification. Needs its own dedicated
+  design pass whenever taskboard joins the SSO story for real. Cross-domain
+  cookie sharing itself (all apps under one root domain) is an infra step,
+  not code — hasn't been verified live since only `grit-pos` is deployed
+  today.
+- ~~**POS's synthetic SKU fallback**~~ **Real fix shipped (approach 2, not
+  just the approach-3 stopgap).** A new `catalog.variant_synced` event lets
+  Inventory push its canonical `Variant` id to POS on create/rename/delete;
+  POS stores it as `Variant.inventoryVariantId` and treats it as the durable
+  join key going forward — `transaction.completed` items carry it alongside
+  `sku`, and Inventory's webhook handler tries an id match first, falling
+  back to the SKU-string lookup only when no id is present or the id lookup
+  misses. The approach-3 visibility stopgap (`UnmatchedSaleItem` queue) from
+  an earlier pass stays in place as the fallback for lines that were never
+  synced (e.g. sold before the sync ever ran).
 - ~~**No Location model in POS**~~ **Shipped.** `apps/grit-pos` gained a
   minimal `Store` model (`tenantId`, `name`, `code`, `isDefault`) and a
   nullable `Order.storeId`, backfilled with exactly one default `Store` per

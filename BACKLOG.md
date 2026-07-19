@@ -146,10 +146,16 @@ tenant-wide switch.
   low-stock widget — "Open orders," "Deliveries in flight" etc. on
   `/admin/dashboard` were never specifically checked across multi-location
   tenants.
-- **CI/sandbox gap:** `apps/grit-taskboard`'s `test-stripe-webhook.mjs`
-  can't run in this dev environment (missing `node_modules/stripe` ESM
-  resolution) — pre-existing, unrelated to anything built this epic, but
-  unverified until run somewhere with real deps installed.
+- ~~**CI/sandbox gap:** `test-stripe-webhook.mjs` couldn't run.~~ **Fixed.**
+  Root cause was the test itself, not the environment: it hardcoded a deep
+  relative import `../node_modules/stripe/esm/stripe.esm.node.js`, which
+  only ever resolves if `stripe` is installed directly inside
+  `apps/grit-taskboard/node_modules` — under npm workspace hoisting it
+  lives in the root `node_modules` instead, so the path 404'd. Switched to
+  the bare specifier `import Stripe from 'stripe'` (Node's resolver walks
+  up to the hoisted install; the package's `exports` map only exposes the
+  top-level entry point anyway, not that deep subpath). `4 passed, 0
+  failed` locally now.
 
 ## P1 — documented design decisions worth revisiting
 

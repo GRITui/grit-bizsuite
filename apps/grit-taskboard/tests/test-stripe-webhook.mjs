@@ -1,7 +1,7 @@
 process.env.STRIPE_SECRET_KEY = 'sk_test_fake_key_for_local_harness';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret_1234567890';
 
-import Stripe from '../node_modules/stripe/esm/stripe.esm.node.js';
+import Stripe from 'stripe';
 import { verifyStripeWebhook } from '../lib/stripe.js';
 
 let pass = 0, fail = 0;

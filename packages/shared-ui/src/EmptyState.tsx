@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cx } from "./cx";
+import { cx } from "./cx.js";
 
 export interface EmptyStateProps {
   /** Short bold heading, e.g. "No products yet". */

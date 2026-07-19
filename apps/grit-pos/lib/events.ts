@@ -5,9 +5,11 @@ import {
   buildEvent,
   type GritEvent,
   type OutboxStore,
+  type PublishResult,
   type TransactionCompletedData,
 } from "@grit/shared-events";
 import { prisma } from "@/lib/prisma";
+import { resolveOrderStoreId } from "@/lib/stores";
 
 // ---------------------------------------------------------------------------
 // Outbound Grit BizSuite events (transaction.completed, pos.velocity_surge).
@@ -103,6 +105,12 @@ export interface PublishTransactionCompletedInput {
   lines: CompletedOrderLine[];
   /** True when the transaction was captured offline and synced later. */
   offlineSynced?: boolean;
+  /**
+   * The order's Store id, if known (`Order.storeId`). No checkout flow sets
+   * this yet, so callers typically omit it/pass null — `location_id` then
+   * resolves to the tenant's default Store (see `resolveOrderStoreId`).
+   */
+  storeId?: string | null;
 }
 
 /**
@@ -111,9 +119,18 @@ export interface PublishTransactionCompletedInput {
  * `after()` in a route handler) — never awaited on the checkout path, and
  * never throws.
  *
+ * Returns the bus's `PublishResult` (subscriber count vs. delivered count,
+ * per-URL failures) so callers can observe partial delivery failures — see
+ * `packages/shared-events/src/bus.ts`. Returns `null` when there was no bus
+ * to publish to (no DATABASE_URL) or when publishing itself threw; either
+ * way this function never throws and checkout must never branch on the
+ * result — it's for observability (logging) only, never control flow.
+ *
  * Notes (per the platform contract):
- * - `location_id` is the tenant's id for now — this app has no Location
- *   model yet, so the tenant is the location.
+ * - `location_id` is the order's real Store id (`resolveOrderStoreId`):
+ *   `input.storeId` if the order has one, else the tenant's default Store,
+ *   else (only if the tenant somehow has no Store row) the tenant id itself
+ *   as a last-resort stand-in — see lib/stores.ts.
  * - `tax_amount` is the VAT embedded in `totalAmount`, computed by the
  *   caller from the order's lines (Variant.vatApplicable) and the tenant's
  *   Tenant.vatRate — see `PublishTransactionCompletedInput.taxAmount`.
@@ -123,14 +140,16 @@ export interface PublishTransactionCompletedInput {
  */
 export async function publishTransactionCompleted(
   input: PublishTransactionCompletedInput,
-): Promise<void> {
+): Promise<PublishResult | null> {
   try {
     const bus = getEventBus();
-    if (!bus) return;
+    if (!bus) return null;
+
+    const locationId = await resolveOrderStoreId(input.tenantId, input.storeId);
 
     const data: TransactionCompletedData = {
       transaction_id: input.orderId,
-      location_id: input.tenantId,
+      location_id: locationId,
       total_amount: input.totalAmount,
       tax_amount: input.taxAmount,
       ...(input.offlineSynced ? { offline_synced: true } : {}),
@@ -141,9 +160,28 @@ export async function publishTransactionCompleted(
       })),
     };
 
-    await bus.publish(buildEvent("transaction.completed", input.tenantId, data));
+    return await bus.publish(buildEvent("transaction.completed", input.tenantId, data));
   } catch (err) {
     // Fire-and-forget by contract: event delivery must never break checkout.
     console.error("Failed to publish transaction.completed", input.orderId, err);
+    return null;
   }
+}
+
+/**
+ * Logs a structured warning when a `publishTransactionCompleted` result
+ * shows one or more subscribers failed delivery. Non-blocking observability
+ * only — never throws, never affects checkout. Callers should invoke this
+ * with the `PublishResult` returned by `publishTransactionCompleted` right
+ * after awaiting it.
+ */
+export function warnOnPublishFailures(orderId: string, result: PublishResult | null): void {
+  if (!result || result.failures.length === 0) return;
+  console.warn("transaction.completed delivery incomplete", {
+    orderId,
+    eventId: result.event_id,
+    subscribers: result.subscribers,
+    delivered: result.delivered,
+    failures: result.failures,
+  });
 }

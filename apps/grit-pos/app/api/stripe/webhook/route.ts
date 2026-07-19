@@ -6,7 +6,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
 import { verifyStripeWebhook } from "@/lib/stripe";
 import { rateLimit } from "@/lib/rateLimit";
-import { publishTransactionCompleted } from "@/lib/events";
+import { publishTransactionCompleted, warnOnPublishFailures } from "@/lib/events";
 import { checkVelocitySurge } from "@/lib/velocity";
 import { computeOrderVat } from "@/app/api/orders/_lib/queries";
 
@@ -125,9 +125,10 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
   const { vatAmount } = computeOrderVat(paid.lines, paid.tenant.vatRate);
 
   after(async () => {
-    await publishTransactionCompleted({
+    const publishResult = await publishTransactionCompleted({
       tenantId: paid.tenantId,
       orderId: paid.id,
+      storeId: paid.storeId,
       totalAmount: Number(subtotal),
       taxAmount: Number(vatAmount),
       lines: paid.lines.map((line) => ({
@@ -137,6 +138,7 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
         unitPrice: Number(line.unitPrice),
       })),
     });
+    warnOnPublishFailures(paid.id, publishResult);
     await checkVelocitySurge(paid.tenantId);
   });
 }

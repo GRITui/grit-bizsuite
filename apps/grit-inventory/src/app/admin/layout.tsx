@@ -11,6 +11,10 @@ const NAV_ITEMS = [
   { href: "/admin/orders", label: "Orders" },
   { href: "/admin/deliveries", label: "Deliveries" },
   { href: "/admin/reports", label: "Reports" },
+  // SKU-alignment visibility stopgap (BACKLOG.md) — manual reconciliation
+  // queue for POS sales whose SKU didn't match any variant. Ungated: it's an
+  // operational cleanup queue, not a tiered feature.
+  { href: "/admin/unmatched-sales", label: "Unmatched sales" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

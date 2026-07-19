@@ -14,6 +14,27 @@ export class PickSkuNotFoundError extends Error {
 }
 
 /**
+ * Pure reducer over a list of `isPrimary` `VariantLocation` rows (already
+ * filtered to `isPrimary: true`, ordered oldest-first by the caller's query)
+ * into a `variantId -> code` map, one entry per variant. `isPrimary` is NOT
+ * DB-uniqueness-enforced (see schema note on `VariantLocation`), so a
+ * variant can legally have more than one row flagged primary (e.g. a stale
+ * flag left over from moving a variant between locations) — the app-level
+ * convention (documented in the README) is that the first (oldest, by the
+ * caller's `orderBy: createdAt asc`) isPrimary row per variant wins and any
+ * later duplicates are ignored.
+ */
+export function resolvePrimaryLocationCodes(
+  locations: { variantId: string; code: string }[]
+): Map<string, string> {
+  const codeByVariant = new Map<string, string>();
+  for (const loc of locations) {
+    if (!codeByVariant.has(loc.variantId)) codeByVariant.set(loc.variantId, loc.code);
+  }
+  return codeByVariant;
+}
+
+/**
  * Creates the pick task for an order already in `fulfilling` — the
  * scanner-driven "go gather these items" step (Grit WMS epic). One per
  * order (1:1, DB-unique on `PickTask.orderId`). Does NOT move stock: the
@@ -58,13 +79,7 @@ export async function createPickTask(
         orderBy: { createdAt: "asc" },
       })
     : [];
-  // Not DB-uniqueness-enforced (see schema note on VariantLocation) — the
-  // first (oldest) isPrimary row per variant wins, matching the README's
-  // documented app-level convention.
-  const codeByVariant = new Map<string, string>();
-  for (const loc of locations) {
-    if (!codeByVariant.has(loc.variantId)) codeByVariant.set(loc.variantId, loc.code);
-  }
+  const codeByVariant = resolvePrimaryLocationCodes(locations);
 
   return tx.pickTask.create({
     data: {
@@ -83,6 +98,44 @@ export async function createPickTask(
     },
     include: { items: { include: { variant: { select: { sku: true, name: true } } } } },
   });
+}
+
+/**
+ * Pure quantity-clamping step of a scan: increments the current scanned
+ * count by 1, capped at `required` so an extra scan of an already-fulfilled
+ * line is a no-op beyond re-stamping `scannedAt` (handled by the caller).
+ */
+export function nextScannedQuantity(current: number, required: number): number {
+  return Math.min(current + 1, required);
+}
+
+/**
+ * Pure completion check: a pick task is done once every item's
+ * `quantityPicked` meets its `quantityRequired`. An empty item list is
+ * vacuously complete (mirrors `Array.prototype.every`).
+ */
+export function isPickTaskComplete(
+  items: { quantityPicked: number; quantityRequired: number }[]
+): boolean {
+  return items.every((i) => i.quantityPicked >= i.quantityRequired);
+}
+
+/**
+ * Pure timestamp-transition step: `startedAt` stamps on first touch and
+ * never moves again; `completedAt` stamps the first time `allDone` flips
+ * true and must NOT keep advancing on later redundant scans of an
+ * already-complete task (capped quantities re-trigger `allDone`).
+ */
+export function resolveTaskTimestamps(params: {
+  allDone: boolean;
+  now: Date;
+  startedAt: Date | null;
+  completedAt: Date | null;
+}): { startedAt: Date; completedAt: Date | null } {
+  return {
+    startedAt: params.startedAt ?? params.now,
+    completedAt: params.allDone ? (params.completedAt ?? params.now) : params.completedAt,
+  };
 }
 
 /**
@@ -109,23 +162,26 @@ export async function scanPickItem(
   await tx.pickTaskItem.update({
     where: { id: item.id },
     data: {
-      quantityPicked: Math.min(item.quantityPicked + 1, item.quantityRequired),
+      quantityPicked: nextScannedQuantity(item.quantityPicked, item.quantityRequired),
       scannedAt: now,
     },
   });
 
   const refreshedItems = await tx.pickTaskItem.findMany({ where: { pickTaskId: task.id } });
-  const allDone = refreshedItems.every((i) => i.quantityPicked >= i.quantityRequired);
+  const allDone = isPickTaskComplete(refreshedItems);
+  const timestamps = resolveTaskTimestamps({
+    allDone,
+    now,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+  });
 
   return tx.pickTask.update({
     where: { id: task.id },
     data: {
       status: allDone ? "complete" : "in_progress",
-      startedAt: task.startedAt ?? now,
-      // Only stamp completedAt the first time all items clear — redundant
-      // scans of an already-complete task (capped quantities) must not keep
-      // pushing the timestamp forward.
-      completedAt: allDone ? task.completedAt ?? now : task.completedAt,
+      startedAt: timestamps.startedAt,
+      completedAt: timestamps.completedAt,
     },
     include: { items: { include: { variant: { select: { sku: true, name: true } } } } },
   });

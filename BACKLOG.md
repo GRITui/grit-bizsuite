@@ -137,15 +137,20 @@ tenant-wide switch.
 
 ### Other P0s
 
-- **No automated tests for the WMS/promotions modules.** Groups, locations,
-  picking, packing, labels, promotions — all verified live by hand, zero
-  automated coverage. `apps/grit-inventory` has no test framework at all
-  (ad-hoc scripts only); this epic didn't add any.
-- **Dashboard stat cards beyond "Low stock" not audited** for the same
-  aggregate-vs-per-store masking bug that was found and fixed on the
-  low-stock widget — "Open orders," "Deliveries in flight" etc. on
-  `/admin/dashboard` were never specifically checked across multi-location
-  tenants.
+- ~~**No automated tests for the WMS/promotions modules.**~~ **Shipped**
+  (Wave 3). `apps/grit-inventory` now has a `node:test` + `tsx` harness
+  (`npm test`, wired into `turbo run test`), with 101 passing unit tests
+  across groups/locations reordering + `isPrimary` exclusivity,
+  picking/packing scan-quantity/timestamp/dedup logic, the new Code128
+  barcode encoder + tracking-ref generator, and promotions'
+  DB-free helpers (`normalizeExclusionPair`, `resolvePromotionItems`,
+  `promotionSummary`, `createPromotionSchema`'s zod refinements). Route
+  handlers and anything touching Prisma/Postgres directly are explicitly
+  left untested — no live-DB test fixture exists yet; that's the natural
+  next increment if deeper coverage is wanted.
+- ~~**Dashboard stat cards beyond "Low stock" not audited**~~ **Closed, no bug
+  found** (Wave 1, see HANDOFF.md) — Open orders/Deliveries in flight/Active
+  products are all correctly tenant-wide already.
 - ~~**CI/sandbox gap:** `test-stripe-webhook.mjs` couldn't run.~~ **Fixed.**
   Root cause was the test itself, not the environment: it hardcoded a deep
   relative import `../node_modules/stripe/esm/stripe.esm.node.js`, which
@@ -163,15 +168,37 @@ tenant-wide switch.
   `GritSession` from its own existing login rather than sharing one
   session; a user logs into POS and Inventory separately even though
   `@grit/passport`'s session shape is already unified across apps.
-- **POS's synthetic SKU fallback** (`PRD-<internal-id>` when a line has no
-  variant SKU) can't be matched by Inventory — cross-app stock decrement
-  silently skips those items. Needs shared/real SKUs on both catalogs.
-- **No Location model in POS** — the tenant/org id stands in for "the
-  default store" on events (see the VAT-inclusive pricing P0 above for the
-  related "no tax model" gap, now fleshed out separately).
-- **Parcel labels are decorative, not scannable.** Self-drawn bar pattern,
-  no real barcode symbology (Code128/QR), no carrier integration —
-  intentionally an "internal MVP label" per its own doc comment.
+  **Deferred** — architect judgment: high effort/risk, low actual unlock
+  value (apps deliberately keep separate DBs regardless of session
+  unification); no other backlog item depends on it. Not scheduled unless
+  priorities change.
+- ~~**POS's synthetic SKU fallback**~~ **Partially shipped — approach 3
+  (visibility stopgap), not approach 2 (real shared identity).** The
+  SKU-string mismatch itself is unchanged (still `PRD-<internal-id>` when a
+  line has no variant SKU, still silently un-matchable against Inventory's
+  `tenantId_sku` lookup) — but the *silence* is fixed on both ends: Inventory
+  now writes a persistent `UnmatchedSaleItem` row (tenant, sku, quantity,
+  order reference, event id) instead of only an ephemeral in-memory
+  `warnings` string, with a `/admin/unmatched-sales` queue to review/resolve
+  them by hand; POS's `publishTransactionCompleted` now surfaces the event
+  bus's `PublishResult` and logs a structured warning on delivery failure
+  instead of discarding it. A real fix (shared catalog identity, approach 2)
+  is still its own dedicated future pass — see the full scoping doc below.
+- ~~**No Location model in POS**~~ **Shipped.** `apps/grit-pos` gained a
+  minimal `Store` model (`tenantId`, `name`, `code`, `isDefault`) and a
+  nullable `Order.storeId`, backfilled with exactly one default `Store` per
+  existing tenant so single-location tenants see zero behavior change.
+  `transaction.completed`'s `location_id` now resolves the real store
+  instead of using the tenant id as a stand-in. Minimal `/stores` admin
+  page for creating/viewing additional locations. Migration is
+  hand-written and **not yet applied to a live database** (no reachable
+  `DATABASE_URL` in this sandbox) — verify against a real/shadow DB before
+  deploying.
+- ~~**Parcel labels are decorative, not scannable.**~~ **Shipped.** Replaced
+  the self-drawn `charCodeAt % 4` bar pattern with a real, vendored Code
+  128 (Subset B) encoder (`apps/grit-inventory/src/lib/barcode/code128.ts`)
+  — no carrier integration yet, that remains open, but the label itself now
+  encodes a real scannable symbology.
 - **Pick/pack/label mutations have no ADMIN gate**, unlike
   groups/locations/promotions (matches the existing `/transition` and
   `/payments` routes' "any staff on the floor" model). Tried adding an
@@ -316,14 +343,32 @@ invent that channel, not just extend one that already exists.
 
 ## P2 — smaller / longer-tail
 
-- `VariantLocation.isPrimary` is app-enforced only, no DB constraint — could
-  end up with two "primary" rows for the same SKU+store under a future bug.
+- ~~`VariantLocation.isPrimary` is app-enforced only, no DB constraint~~
+  **Shipped** (Wave 1) — partial unique index in place, and now also
+  covered by unit tests (Wave 3) for the app-side demotion-clause logic.
 - Grit-inventory's original `Bundle`/`BundleComponent` model (build-to-sell
   composite SKUs, from the M1 handoff) remains stubbed and unused — a
-  different concept from the new `bundle_deal` promotion type.
+  different concept from the new `bundle_deal` promotion type. **Open, not
+  urgent.**
 - No public storefront/checkout for Inventory, no real courier integration
   for Deliveries, no ML forecasting (still naive moving-average) — all
-  called out as explicitly out of scope since the original M1 handoff doc.
-- Turbopack can't resolve the shared packages' `.js→.ts` specifiers, so both
-  Next apps build pinned to webpack — fixable with an extensionless-import
-  cleanup in `packages/`, not urgent.
+  called out as **explicitly out of scope**, do not schedule.
+- **Turbopack can't resolve the shared packages' specifiers — investigated,
+  turned out NOT to be a mechanical fix.** The original hypothesis
+  ("extensionless imports, add `.js`") was wrong: `packages/shared-ui` was
+  the only package actually missing extensions, and adding them (done) does
+  not fix Turbopack — a live `next build --turbopack` still fails with 22
+  "Module not found" errors, including on imports that were *already*
+  extension-explicit before this pass (e.g. `packages/passport/src/index.ts`).
+  Root cause: Turbopack has no equivalent of webpack's
+  `resolve.extensionAlias`, which is what lets `./foo.js` resolve to
+  `foo.ts` on disk — `apps/grit-pos/next.config.ts` already documents this
+  exact limitation inline. Closing this needs an actual architect decision
+  between three options, not another sweep: (a) ship `packages/**` as
+  pre-compiled `.js` output instead of TS source, (b) switch to genuinely
+  extensionless relative imports plus `turbopack.resolveExtensions` (at the
+  cost of breaking `packages/passport`'s Node-run test file, which currently
+  needs literal `.ts` specifiers under `--experimental-strip-types`), or (c)
+  keep both Next apps pinned to webpack indefinitely. No apps/** build
+  scripts were changed. **Open, needs a direction pick before any further
+  work.**

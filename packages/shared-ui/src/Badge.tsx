@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cx } from "./cx";
+import { cx } from "./cx.js";
 
 export type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
 

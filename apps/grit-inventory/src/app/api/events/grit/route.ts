@@ -150,6 +150,20 @@ async function handleTransactionCompleted(event: TransactionCompletedEvent) {
       });
       if (!variant) {
         warnings.push(`Unknown SKU ${item.sku} — skipped`);
+        // Visibility stopgap (BACKLOG.md, SKU-alignment approach 3): the
+        // warnings string above is only returned in this response's body,
+        // which nothing reads (GritEventBus.deliver only checks res.ok).
+        // Persist the miss so it surfaces on /admin/unmatched-sales for
+        // manual reconciliation instead of being silently lost.
+        await tx.unmatchedSaleItem.create({
+          data: {
+            tenantId: tenant.id,
+            sku: item.sku,
+            quantity: item.quantity,
+            orderReference: transaction_id ?? null,
+            eventId: event.event_id,
+          },
+        });
         continue;
       }
 

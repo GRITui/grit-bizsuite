@@ -9,7 +9,12 @@ import {
   PaymentStatus,
   TenderType,
 } from "@/app/generated/prisma/enums";
-import { eventItemSku, publishTransactionCompleted, type CompletedOrderLine } from "@/lib/events";
+import {
+  eventItemSku,
+  publishTransactionCompleted,
+  warnOnPublishFailures,
+  type CompletedOrderLine,
+} from "@/lib/events";
 import { checkVelocitySurge } from "@/lib/velocity";
 import { errorResponse, HttpError, readJsonBody } from "../_lib/http";
 import {
@@ -76,6 +81,7 @@ interface SyncResult {
 
 interface CompletedPublish {
   orderId: string;
+  storeId: string | null;
   totalAmount: number;
   taxAmount: number;
   lines: CompletedOrderLine[];
@@ -211,6 +217,7 @@ async function applyTenderOp(
     const { vatAmount } = computeOrderVat(outcome.order.lines, outcome.order.tenant.vatRate);
     completed.push({
       orderId: outcome.order.id,
+      storeId: outcome.order.storeId,
       totalAmount: Number(outcome.amountDue),
       taxAmount: Number(vatAmount),
       lines: collectEventLines(outcome.order),
@@ -366,6 +373,7 @@ async function applyQuickSaleOp(
     );
     completed.push({
       orderId: created.id,
+      storeId: null,
       totalAmount: Number(amountDue),
       taxAmount: Number(vatAmount),
       lines: preparedLines.map((line) => ({
@@ -426,14 +434,16 @@ export async function POST(request: Request) {
     if (completed.length > 0) {
       after(async () => {
         for (const done of completed) {
-          await publishTransactionCompleted({
+          const publishResult = await publishTransactionCompleted({
             tenantId,
             orderId: done.orderId,
+            storeId: done.storeId,
             totalAmount: done.totalAmount,
             taxAmount: done.taxAmount,
             lines: done.lines,
             offlineSynced: true,
           });
+          warnOnPublishFailures(done.orderId, publishResult);
         }
         await checkVelocitySurge(tenantId);
       });

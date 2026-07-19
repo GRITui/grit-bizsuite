@@ -115,6 +115,7 @@ model Tenant {
   parcelLabels     ParcelLabel[]
   promotions       Promotion[]
   promotionExclusions PromotionExclusion[]
+  unmatchedSaleItems  UnmatchedSaleItem[]
 }
 
 /// Grit pivot (M2 multi-location, executed): tenants may now hold multiple
@@ -878,4 +879,36 @@ model PromotionExclusion {
   @@unique([promotionId, excludedPromotionId])
   @@index([tenantId])
   @@index([excludedPromotionId])
+}
+
+/// SKU-alignment visibility stopgap (BACKLOG.md, POS<->Inventory SKU
+/// alignment, approach 3): grit-pos and grit-inventory currently have no
+/// catalog-sync mechanism and `sku` is not mandatory, so a `transaction.
+/// completed` event's line item can reference a SKU this app has no
+/// `Variant` for. Previously that miss only pushed an ephemeral string onto
+/// an in-memory `warnings` array returned in the HTTP response body, which
+/// nothing reads (see `packages/shared-events/src/bus.ts`'s
+/// `GritEventBus.deliver`, which only checks `res.ok`) — so the stock
+/// discrepancy was silently lost. This table persists each miss for manual
+/// reconciliation (see /admin/unmatched-sales) until either the catalogs are
+/// aligned or a real sync mechanism (approach 1/2) is built.
+model UnmatchedSaleItem {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  sku            String
+  quantity       Int
+  /// grit-pos's `transaction_id` for the sale this item came from, when the
+  /// event supplied one — lets a human correlate the miss back to the
+  /// original POS transaction.
+  orderReference String?
+  /// The webhook envelope's `event_id`, for dedupe/audit — a replayed event
+  /// (already deduped by `ProcessedEvent`) never reaches this table twice.
+  eventId        String?
+  occurredAt     DateTime  @default(now())
+  resolvedAt     DateTime?
+  resolvedNote   String?
+
+  @@index([tenantId, resolvedAt])
+  @@index([tenantId, sku])
 }

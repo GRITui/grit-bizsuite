@@ -53,6 +53,44 @@ export async function createPackTask(tx: TxClient, params: { tenantId: string; o
 }
 
 /**
+ * Pure quantity-clamping step of a scan: increments the current scanned
+ * count by 1, capped at `required`. Mirrors `nextScannedQuantity` in
+ * lib/picking.ts.
+ */
+export function nextScannedQuantity(current: number, required: number): number {
+  return Math.min(current + 1, required);
+}
+
+/**
+ * Pure completion check: a pack task is done once every item's
+ * `quantityPacked` meets its `quantityRequired`. Mirrors
+ * `isPickTaskComplete` in lib/picking.ts.
+ */
+export function isPackTaskComplete(
+  items: { quantityPacked: number; quantityRequired: number }[]
+): boolean {
+  return items.every((i) => i.quantityPacked >= i.quantityRequired);
+}
+
+/**
+ * Pure timestamp-transition step, identical semantics to
+ * `resolveTaskTimestamps` in lib/picking.ts: `startedAt` stamps once and
+ * never moves, `completedAt` stamps the first time `allDone` flips true and
+ * must not keep advancing on later redundant scans.
+ */
+export function resolveTaskTimestamps(params: {
+  allDone: boolean;
+  now: Date;
+  startedAt: Date | null;
+  completedAt: Date | null;
+}): { startedAt: Date; completedAt: Date | null } {
+  return {
+    startedAt: params.startedAt ?? params.now,
+    completedAt: params.allDone ? (params.completedAt ?? params.now) : params.completedAt,
+  };
+}
+
+/**
  * Records one scanned unit against the matching `PackTaskItem` (matched by
  * variant SKU). Mirrors `scanPickItem` exactly, one layer down
  * (`quantityPacked` instead of `quantityPicked`).
@@ -74,20 +112,26 @@ export async function scanPackItem(
   await tx.packTaskItem.update({
     where: { id: item.id },
     data: {
-      quantityPacked: Math.min(item.quantityPacked + 1, item.quantityRequired),
+      quantityPacked: nextScannedQuantity(item.quantityPacked, item.quantityRequired),
       scannedAt: now,
     },
   });
 
   const refreshedItems = await tx.packTaskItem.findMany({ where: { packTaskId: task.id } });
-  const allDone = refreshedItems.every((i) => i.quantityPacked >= i.quantityRequired);
+  const allDone = isPackTaskComplete(refreshedItems);
+  const timestamps = resolveTaskTimestamps({
+    allDone,
+    now,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+  });
 
   return tx.packTask.update({
     where: { id: task.id },
     data: {
       status: allDone ? "complete" : "in_progress",
-      startedAt: task.startedAt ?? now,
-      completedAt: allDone ? task.completedAt ?? now : task.completedAt,
+      startedAt: timestamps.startedAt,
+      completedAt: timestamps.completedAt,
     },
     include: { items: { include: { variant: { select: { sku: true, name: true } } } } },
   });

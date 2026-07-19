@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cx } from "./cx";
+import { cx } from "./cx.js";
 
 type ColumnBase = {
   /** Stable column id, used as the React key for header/cells. */

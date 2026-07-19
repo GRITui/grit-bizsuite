@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
+  const [tenantName, setTenantName] = useState("");
+  const [slug, setSlug] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,15 +19,15 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ tenantName, slug, email, password }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Login failed");
+        setError(data.error ?? "Registration failed");
         return;
       }
 
@@ -44,7 +46,34 @@ export default function LoginPage() {
         onSubmit={handleSubmit}
         className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800"
       >
-        <h1 className="text-2xl font-bold tracking-tight">Staff sign in</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Create your restaurant</h1>
+
+        <label className="flex flex-col gap-1 text-sm">
+          Restaurant name
+          <input
+            required
+            value={tenantName}
+            onChange={(e) => setTenantName(e.target.value)}
+            placeholder="My Cafe"
+            className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          Restaurant slug
+          <input
+            required
+            value={slug}
+            onChange={(e) => setSlug(e.target.value.toLowerCase())}
+            placeholder="my-cafe"
+            pattern="[a-z0-9-]+"
+            title="Lowercase letters, numbers, and hyphens only"
+            className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            Used in your customer-facing pickup ordering link: /pickup/{slug || "my-cafe"}
+          </span>
+        </label>
 
         <label className="flex flex-col gap-1 text-sm">
           Email
@@ -62,10 +91,12 @@ export default function LoginPage() {
           <input
             required
             type="password"
+            minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">At least 8 characters.</span>
         </label>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -75,13 +106,13 @@ export default function LoginPage() {
           disabled={submitting}
           className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
         >
-          {submitting ? "Signing in…" : "Sign in"}
+          {submitting ? "Creating…" : "Create account"}
         </button>
 
         <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
-          New restaurant?{" "}
-          <Link href="/register" className="font-medium text-zinc-900 underline dark:text-white">
-            Create an account
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-zinc-900 underline dark:text-white">
+            Sign in
           </Link>
         </p>
       </form>

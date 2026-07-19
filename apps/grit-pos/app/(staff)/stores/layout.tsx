@@ -28,7 +28,7 @@ export default async function StoresLayout({
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
         <div>
-          <p className="text-sm font-semibold">{tenant?.name ?? "Horeca POS"}</p>
+          <p className="text-sm font-semibold">{tenant?.name ?? "Grit POS"}</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{session.email}</p>
         </div>
         <nav className="flex items-center gap-4">

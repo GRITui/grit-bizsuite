@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Horeca POS",
-  description: "Hotel/Restaurant/Cafe POS MVP",
+  title: "Grit POS",
+  description: "Channel-agnostic point-of-sale for SMEs — front-of-house checkout, QR dine-in, and pickup links.",
 };
 
 export default function RootLayout({

@@ -46,32 +46,32 @@ export default function RegisterPage() {
         onSubmit={handleSubmit}
         className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800"
       >
-        <h1 className="text-2xl font-bold tracking-tight">Create your restaurant</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Create your business</h1>
 
         <label className="flex flex-col gap-1 text-sm">
-          Restaurant name
+          Business name
           <input
             required
             value={tenantName}
             onChange={(e) => setTenantName(e.target.value)}
-            placeholder="My Cafe"
+            placeholder="My Business"
             className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           />
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Restaurant slug
+          Business slug
           <input
             required
             value={slug}
             onChange={(e) => setSlug(e.target.value.toLowerCase())}
-            placeholder="my-cafe"
+            placeholder="my-business"
             pattern="[a-z0-9-]+"
             title="Lowercase letters, numbers, and hyphens only"
             className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           />
           <span className="text-xs text-zinc-500 dark:text-zinc-400">
-            Used in your customer-facing pickup ordering link: /pickup/{slug || "my-cafe"}
+            Used in your customer-facing pickup ordering link: /pickup/{slug || "my-business"}
           </span>
         </label>
 

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createSession, hashPassword } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 
-// Bootstraps a brand-new restaurant account: creates the Tenant and its
+// Bootstraps a brand-new tenant account: creates the Tenant and its
 // first (owner) User together, in one transaction, then logs that user in.
 
 interface RegisterBody {

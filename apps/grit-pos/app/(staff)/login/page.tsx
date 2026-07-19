@@ -79,7 +79,7 @@ export default function LoginPage() {
         </button>
 
         <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
-          New restaurant?{" "}
+          New business?{" "}
           <Link href="/register" className="font-medium text-zinc-900 underline dark:text-white">
             Create an account
           </Link>

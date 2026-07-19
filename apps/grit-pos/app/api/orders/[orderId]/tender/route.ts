@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { Decimal } from "@prisma/client/runtime/client";
-import { publishTransactionCompleted } from "@/lib/events";
+import { publishTransactionCompleted, warnOnPublishFailures } from "@/lib/events";
 import { checkVelocitySurge } from "@/lib/velocity";
 import { requireTenantId } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
@@ -141,9 +141,10 @@ export async function POST(
     if (isFullyPaid) {
       const { vatAmount } = computeOrderVat(updated.lines, updated.tenant.vatRate);
       after(async () => {
-        await publishTransactionCompleted({
+        const publishResult = await publishTransactionCompleted({
           tenantId,
           orderId,
+          storeId: updated.storeId,
           totalAmount: Number(amountDue),
           taxAmount: Number(vatAmount),
           lines: updated.lines.map((line) => ({
@@ -153,6 +154,7 @@ export async function POST(
             unitPrice: Number(line.unitPrice),
           })),
         });
+        warnOnPublishFailures(orderId, publishResult);
         await checkVelocitySurge(tenantId);
       });
     }

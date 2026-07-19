@@ -109,6 +109,40 @@ is cross-cutting per `AGENTS.md`.
 
 Commit: `20a3b6f` (contract addition: `ded781b`).
 
+### Wave 3/4 — three disjoint parallel tracks closing most remaining backlog items
+Dispatched after re-reading this very handoff doc first (avoided redoing
+already-shipped Wave 1/2 work) and confirming scope with the user for the
+genuinely-open items only — SSO and the Inventory storefront/courier/ML
+non-goals stayed deferred/out-of-scope as this doc already recommended.
+
+| Track | Delivered | Outcome |
+|---|---|---|
+| Turbopack cleanup (`packages/**`) | Audited every relative import across `database`/`shared-events`/`shared-ui`/`passport`; only `shared-ui` was missing explicit `.js` extensions, fixed | **Hypothesis disproven, not closed** — a live `next build --turbopack` still fails (22 errors) even on imports that were already extension-explicit before this pass. Turbopack has no equivalent of webpack's `resolve.extensionAlias`; closing this needs an architect direction-pick between three real options (see updated `BACKLOG.md` P2 entry), not another mechanical sweep |
+| Real barcode labels (`grit-inventory`) | Vendored a Code 128 (Subset B) encoder, replacing the decorative `charCodeAt % 4` bar pattern | **Shipped** |
+| SKU-alignment visibility stopgap (`grit-inventory` + `grit-pos`) | Approach 3 from the scoping doc (user's pick, not approach 2): `UnmatchedSaleItem` table + `/admin/unmatched-sales` queue on the Inventory side; `publishTransactionCompleted` now surfaces and logs `PublishResult` delivery failures on the POS side | **Shipped** — the SKU-string mismatch itself is still unfixed by design (that's the larger approach-2 catalog-identity epic), only the silence is closed |
+| Location model (`grit-pos`) | Minimal `Store` model + nullable `Order.storeId`, backfilled one default Store per tenant, wired into `transaction.completed`'s `location_id`, small `/stores` admin page | **Shipped** |
+| Wave 3 automated tests (`grit-inventory`) | `node:test` + `tsx` harness (`npm test`, wired into `turbo run test`); 101 passing tests across groups/locations, picking/packing, labels (new barcode encoder + tracking-ref), and promotions' DB-free helpers | **Shipped** — the last open P0. Route handlers / anything Prisma-coupled deliberately left untested, no live-DB fixture exists |
+
+**Process notes carried forward from this wave:**
+- Both new migrations (`grit-inventory`'s `UnmatchedSaleItem`, `grit-pos`'s
+  `Store`/`Order.storeId`) are **hand-written, not generated against a live
+  database** — same known gap as Wave 1/2 (no reachable `DATABASE_URL` in
+  this sandbox). Verify against a real/shadow DB before deploying.
+- Several builders performed narrow, behavior-preserving pure-function
+  extractions (e.g. `resolveReorderSwap`, `primaryDemotionWhereClause`,
+  `nextScannedQuantity`, `isPickTaskComplete`/`isPackTaskComplete`,
+  `resolveTaskTimestamps`, `resolvePrimaryLocationCodes`,
+  `generateTrackingRef`) purely to make previously DB-transaction-coupled
+  logic unit-testable — verified via `tsc --noEmit` + full test suite, no
+  behavior change intended or observed.
+- No two builders touched the same directory: `packages/**`,
+  `apps/grit-inventory`, and `apps/grit-pos` were fully disjoint tracks; the
+  `apps/grit-inventory` and `apps/grit-pos` tracks each ran their own
+  sub-stages sequentially (not in parallel) to avoid same-app file
+  collisions.
+
+Commit: (this handoff's own commit, see repo log).
+
 ---
 
 ## Bugs caught in review (both real, both fixed before merge)
@@ -156,7 +190,7 @@ actually points at.
 |---|---|
 | Discount resolution policy (stacking + exclusions) | **Shipped** (Wave 2), bug-fixed post-review |
 | VAT-inclusive pricing | **Shipped** (Wave 2) |
-| No automated tests for WMS/promotions modules | **Open** — `apps/grit-inventory` has no test framework at all; this is the next recommended pass (see below) |
+| No automated tests for WMS/promotions modules | **Shipped** (Wave 3/4) — `node:test` harness, 101 passing tests |
 | Dashboard stat cards beyond Low Stock not audited | **Closed, no bug found** (Wave 1) |
 | Taskboard stripe-webhook test can't run | **Fixed** (Wave 0) |
 
@@ -165,9 +199,9 @@ actually points at.
 | Item | Status |
 |---|---|
 | Full SSO still a bridge, not real | **Deferred** — architect judgment: high effort/risk, low actual unlock value (apps deliberately keep separate DBs regardless of session unification); no other backlog item depends on it |
-| POS synthetic SKU fallback / Inventory matching | **Scoped, not built** — full design doc with 3 candidate approaches added to `BACKLOG.md` (Wave 1); real fix is a shared-catalog epic needing its own dedicated pass |
-| No Location model in POS | **Open**, low urgency, documented |
-| Parcel labels decorative, not scannable | **Open**, low urgency, documented |
+| POS synthetic SKU fallback / Inventory matching | **Visibility stopgap shipped** (Wave 3/4, approach 3 of the Wave 1 scoping doc) — mismatch itself still unfixed by design; the silence is closed via `UnmatchedSaleItem` + delivery-failure logging. Real fix (approach 2, shared catalog identity) remains its own dedicated future pass |
+| No Location model in POS | **Shipped** (Wave 3/4) — minimal `Store` model + `Order.storeId`, migration not yet applied to a live DB |
+| Parcel labels decorative, not scannable | **Shipped** (Wave 3/4) — real Code 128 encoder; carrier integration still open |
 | Pick/pack/label mutations have no ADMIN gate | **Resolved as "intentionally ungated"** after the Wave 1 revert — see Bugs Caught above |
 | Reports daily margin/COGS breakdown was null | **Shipped** (Wave 1) |
 | Taskboard persona onboarding missing "trading company" | **Shipped** (Wave 1) |
@@ -176,34 +210,39 @@ actually points at.
 
 | Item | Status |
 |---|---|
-| `VariantLocation.isPrimary` no DB constraint | **Shipped** (Wave 1) |
+| `VariantLocation.isPrimary` no DB constraint | **Shipped** (Wave 1), now also unit-tested (Wave 3/4) |
 | `Bundle`/`BundleComponent` stub unused | **Open**, not urgent |
 | No public storefront/courier/ML forecasting | **Explicitly out of scope**, do not schedule |
-| Turbopack can't resolve shared-package specifiers (webpack pinned) | **Open**, not urgent, mechanical fix when someone has spare cycles |
+| Turbopack can't resolve shared-package specifiers (webpack pinned) | **Investigated (Wave 3/4), hypothesis disproven** — the "add `.js` extensions" fix doesn't work; needs an architect direction-pick between 3 real options (see `BACKLOG.md`), not a mechanical sweep |
 
 ---
 
 ## Recommended next steps
 
-1. **Wave 3 — automated test coverage for WMS/promotions.** This is the
-   last open P0. `apps/grit-inventory` currently has zero test framework
-   (ad-hoc verification scripts only) — this is a bigger lift than Waves 1–2
-   because it starts with "pick and wire up a test framework," not just
-   "write tests." Recommend scoping this as its own dedicated pass rather
-   than another 5-squad parallel wave: pick the framework first (architect
-   decision), then parallelize test-writing by module (groups/locations,
-   picking/packing, labels, promotions) once the harness exists. Should
-   target the **post-Wave-2 shape** of `evaluatePromotions` (with stacking
-   + exclusion resolution), not the pre-Wave-2 behavior.
-2. **POS ↔ Inventory SKU alignment.** The scoping doc in `BACKLOG.md` (P1)
-   is ready for someone to pick a direction from its 3 candidate approaches
-   and turn it into a dedicated build pass — it's flagged as too large for
-   a single blind builder task.
-3. **Turbopack cleanup** (P2) is cheap, mechanical, and safe to hand to a
-   Haiku-tier sweep whenever convenient — extensionless imports in
-   `packages/*` need explicit `.js` extensions.
-4. Everything else in the P1/P2 tables above is either genuinely deferred
-   (SSO) or low-urgency enough to leave as documented debt.
+1. ~~**Wave 3 — automated test coverage for WMS/promotions.**~~ **Done**
+   (see Wave 3/4 above). Its promotions tests already exercise the
+   **post-Wave-2 shape** (stacking + exclusion resolution helpers). Only
+   route handlers / anything Prisma-coupled remain untested — a live-DB
+   test fixture (e.g. a shared `@grit/database` test-db helper) would be
+   the natural next increment if deeper coverage is wanted.
+2. ~~**POS ↔ Inventory SKU alignment.**~~ **Visibility stopgap done** (Wave
+   3/4, approach 3). The real fix — a shared catalog-identity mechanism
+   (approach 2) — is still open and is its own dedicated epic, not a small
+   follow-up: it requires a new Inventory→POS catalog-sync event and an
+   answer to "which app owns the canonical catalog," neither of which
+   exists today.
+3. **Turbopack cleanup** (P2) turned out **not** to be the cheap mechanical
+   fix this doc originally assumed — see the updated `BACKLOG.md` P2 entry.
+   Needs an architect-level direction pick (pre-compile packages to JS vs.
+   extensionless imports vs. stay on webpack) before any further work, not
+   a Haiku sweep.
+4. Both new Wave 3/4 migrations (`grit-inventory`'s `UnmatchedSaleItem`,
+   `grit-pos`'s `Store`/`Order.storeId`) need to be verified against a real
+   or shadow database before deploying — they were hand-written in a
+   sandbox with no reachable `DATABASE_URL`, same known gap as Wave 1/2.
+5. Everything else in the P1/P2 tables above is either genuinely deferred
+   (SSO) or low-urgency enough to leave as documented debt (`Bundle`/
+   `BundleComponent` cleanup, carrier integration for parcel labels).
 
 ---
 

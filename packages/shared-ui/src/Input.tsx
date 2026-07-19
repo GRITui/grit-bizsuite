@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, type ComponentPropsWithRef } from "react";
-import { cx } from "./cx";
+import { cx } from "./cx.js";
 
 export interface InputProps extends ComponentPropsWithRef<"input"> {
   /** Visible label rendered above the field and wired via htmlFor. */

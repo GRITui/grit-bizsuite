@@ -1,4 +1,4 @@
-import { cx } from "./cx";
+import { cx } from "./cx.js";
 
 /**
  * Structural mirror of `AppNavItem` from `@grit/passport` (`buildAppNav`).

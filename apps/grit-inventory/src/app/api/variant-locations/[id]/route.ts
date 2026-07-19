@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
+import { primaryDemotionWhereClause } from "@/lib/groups-locations/primary";
 
 const updateVariantLocationSchema = z.object({
   code: z.string().min(1).optional(),
@@ -43,13 +44,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const location = await db.$transaction(async (tx) => {
     if (isPrimary) {
       await tx.variantLocation.updateMany({
-        where: {
-          tenantId: session.tenantId,
-          storeId: existing.storeId,
-          variantId: existing.variantId,
-          isPrimary: true,
-          id: { not: existing.id },
-        },
+        where: primaryDemotionWhereClause(
+          session.tenantId,
+          existing.storeId,
+          existing.variantId,
+          existing.id
+        ),
         data: { isPrimary: false },
       });
     }

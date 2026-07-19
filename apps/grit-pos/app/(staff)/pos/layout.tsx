@@ -56,6 +56,9 @@ export default async function PosLayout({ children }: { children: React.ReactNod
           <Link href="/reconciliation" className="text-sm text-zinc-500 underline dark:text-zinc-400">
             Reconciliation
           </Link>
+          <Link href="/stores" className="text-sm text-zinc-500 underline dark:text-zinc-400">
+            Locations
+          </Link>
           <SignOutButton />
         </nav>
       </header>

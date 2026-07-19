@@ -98,8 +98,39 @@ model Tenant {
   orders                Order[]
   dailyReconciliations  DailyReconciliation[]
   promotionRules        PromotionRule[]
+  stores                Store[]
 
   @@map("tenants")
+}
+
+/// A physical location a tenant sells from. grit-pos previously had no
+/// Location concept at all — every `transaction.completed` event just sent
+/// the tenant id as a stand-in "location_id" (see lib/events.ts). This is
+/// the minimal model needed to give multi-location tenants a real store to
+/// point at, matching grit-inventory's own `Store` concept (tenantId, name,
+/// isDefault) closely enough that ids round-trip directly (see
+/// grit-inventory's app/api/events/grit/route.ts, which already resolves an
+/// incoming location_id against its own Store table).
+///
+/// Every existing tenant gets exactly one Store, `isDefault = true`, created
+/// by this model's migration — so a single-location tenant sees zero
+/// behavior change (see `resolveOrderStoreId` in lib/stores.ts).
+model Store {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  /// Short human-facing identifier, unique per tenant (e.g. "MAIN",
+  /// "DOWNTOWN"). Not exposed cross-app; grit-inventory matches on `id`.
+  code      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("stores")
 }
 
 /// Staff account, scoped to a single Tenant.
@@ -232,6 +263,12 @@ model Order {
   tenantId   String
   channel    OrderChannel
   tableId    String?
+  /// Which physical Store this sale happened at. Nullable and NOT set by
+  /// any checkout flow yet (no UI location-picker exists) — left for a
+  /// future stage to wire up. `resolveOrderStoreId` (lib/stores.ts) falls
+  /// back to the tenant's default Store when this is null, so omitting it
+  /// is the normal, zero-behavior-change path for single-location tenants.
+  storeId    String?
   status     OrderStatus  @default(open)
   /// For pickup_link orders: when the order is promised to the customer.
   promisedAt DateTime?
@@ -240,6 +277,7 @@ model Order {
 
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   table  Table?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  store  Store?  @relation(fields: [storeId], references: [id], onDelete: SetNull)
 
   lines    OrderLine[]
   payments Payment[]
@@ -248,6 +286,7 @@ model Order {
   @@index([channel])
   @@index([status])
   @@index([tableId])
+  @@index([storeId])
   @@map("orders")
 }
 

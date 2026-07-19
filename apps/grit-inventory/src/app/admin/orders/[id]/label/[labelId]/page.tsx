@@ -2,26 +2,42 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 import { PrintLabelActions } from "@/components/print-label-actions";
+import { encodeCode128B } from "@/lib/barcode/code128";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Decorative bars derived deterministically from the tracking ref's
- * character codes. This is an internal MVP label (no real carrier
- * integration — see schema note on ParcelLabel), not a certified/scannable
- * shipping barcode; it just needs to *look* like one on the printed slip.
+ * Real, scannable Code 128 (Subset B) barcode for the label's tracking ref
+ * (see `src/lib/barcode/code128.ts`). No real carrier integration — the
+ * value itself is still a self-generated `PKG-` ref, not a certified
+ * carrier tracking number — but the printed symbol now decodes to that
+ * exact string with any standard barcode scanner or phone scanner app.
  */
 function Barcode({ value }: { value: string }) {
-  const bars = value.split("").map((ch, i) => ({
-    key: `${ch}-${i}`,
-    width: 2 + (ch.charCodeAt(0) % 4), // 2-5px
-  }));
+  const bars = encodeCode128B(value);
+  const moduleWidth = 2; // px per module, tuned to stay legible at 4x6 print size
+  const totalWidth = bars.reduce((sum, bar) => sum + bar.width, 0) * moduleWidth;
+
+  let x = 0;
+  const rects = bars.map((bar, i) => {
+    const rect = bar.black ? (
+      <rect key={i} x={x} y={0} width={bar.width * moduleWidth} height="100%" fill="black" />
+    ) : null;
+    x += bar.width * moduleWidth;
+    return rect;
+  });
+
   return (
-    <div className="flex h-16 items-stretch gap-[2px] bg-white p-2" aria-hidden="true">
-      {bars.map((bar) => (
-        <div key={bar.key} style={{ width: bar.width }} className="h-full bg-black" />
-      ))}
-    </div>
+    <svg
+      viewBox={`0 0 ${totalWidth} 64`}
+      preserveAspectRatio="none"
+      className="h-16 w-full bg-white p-2"
+      role="img"
+      aria-label={`Code 128 barcode: ${value}`}
+    >
+      <rect x={0} y={0} width={totalWidth} height={64} fill="white" />
+      {rects}
+    </svg>
   );
 }
 

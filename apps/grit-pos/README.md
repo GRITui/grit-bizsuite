@@ -82,8 +82,11 @@ event delivery.
 
 - `transaction.completed` — emitted when an order becomes fully paid/closed
   from the staff tender route, the Stripe webhook confirm, and offline sync.
-  Notes: `location_id` is the **tenant id** (no Location model yet);
-  `tax_amount` is always `0` (no tax model yet); item `sku` is the variant's
+  Notes: `location_id` is the order's `Store.id` (see `Store` in
+  `prisma/schema.prisma` and `resolveOrderStoreId` in `lib/stores.ts`) —
+  falls back to the tenant's default Store when the order has no `storeId`
+  set (no checkout flow sets one yet), and to the tenant id itself only if
+  the tenant somehow has no Store row at all; item `sku` is the variant's
   child SKU or the fallback `PRD-<productId>`. Known limitation: fallback SKUs
   are POS-internal ids, so grit-inventory will skip them as unknown unless the
   same SKU exists there — cross-app stock decrement requires the catalogs to
@@ -157,6 +160,15 @@ are additive and idempotent. `npx prisma validate` passes without a
 database; `npx prisma migrate deploy` requires a reachable `DATABASE_URL`
 (or apply the SQL with psql). The migration also creates `event_outbox`,
 mirroring `packages/database/migrations/0002_platform_extensions.sql`.
+
+`prisma/migrations/20260719120000_grit_pos_location_model/migration.sql` adds
+the `Store` model (BACKLOG.md P1 "No Location model in POS") and a nullable
+`Order.storeId`, plus a data backfill that creates exactly one
+`isDefault = true` Store per existing tenant so single-location tenants see
+no behavior change. Hand-written (not diff-generated from a live database —
+see the migration file's own header comment for why), following the same
+`gen_random_uuid()`-backed deterministic-id convention as
+`apps/grit-inventory`'s `StoreStock` backfill.
 
 ## Build notes
 

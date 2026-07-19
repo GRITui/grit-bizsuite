@@ -1,14 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { assertFeature } from "@grit/passport";
 import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
-
-/** `PKG-` + a cuid-ish short random token, e.g. `PKG-A1B2C3D4E5`. */
-function generateTrackingRef(): string {
-  return `PKG-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
-}
+import { generateTrackingRef } from "@/lib/labels/tracking-ref";
 
 /**
  * POST /api/orders/[id]/parcel-label — generate an internal parcel label.

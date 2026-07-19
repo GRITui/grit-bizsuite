@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
+import { resolveReorderSwap } from "@/lib/groups-locations/reorder";
 
 const updateSubGroupSchema = z.object({
   name: z.string().min(1).optional(),
@@ -47,11 +48,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           select: { id: true, sortOrder: true },
         });
-        const idx = siblings.findIndex((s) => s.id === subGroup.id);
-        const swapIdx = direction === "up" ? idx - 1 : idx + 1;
-        if (idx === -1 || swapIdx < 0 || swapIdx >= siblings.length) return;
-        const current = siblings[idx];
-        const swapWith = siblings[swapIdx];
+        const swap = resolveReorderSwap(siblings, subGroup.id, direction);
+        if (!swap) return;
+        const { current, swapWith } = swap;
         await tx.itemSubGroup.update({
           where: { id: current.id },
           data: { sortOrder: swapWith.sortOrder },

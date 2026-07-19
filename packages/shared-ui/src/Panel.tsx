@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cx } from "./cx";
+import { cx } from "./cx.js";
 
 export interface PanelProps {
   /** Optional header title; header row renders only when title or action set. */

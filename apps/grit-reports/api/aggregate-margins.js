@@ -132,3 +132,8 @@ export default async function handler(request) {
     upstream: { pos: posResult.marker, inventory: inventoryResult.marker },
   });
 }
+
+// Uses the Fetch API Request/Response shapes throughout (see lib/http.js) —
+// same convention as apps/grit-taskboard/api — so this must run on Vercel's
+// Edge runtime rather than the default Node.js (req, res) serverless shape.
+export const config = { runtime: "edge" };

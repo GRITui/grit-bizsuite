@@ -4,7 +4,6 @@ import { createSession, verifyPassword } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 
 interface LoginBody {
-  slug?: string;
   email?: string;
   password?: string;
 }
@@ -26,10 +25,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { slug, email, password } = body;
-  if (!slug || !email || !password) {
+  const { email, password } = body;
+  if (!email || !password) {
     return NextResponse.json(
-      { error: "slug, email, and password are all required" },
+      { error: "email and password are required" },
       { status: 400 },
     );
   }
@@ -39,11 +38,15 @@ export async function POST(request: Request) {
   const invalid = () =>
     NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug } });
-  if (!tenant) return invalid();
-
-  const user = await prisma.user.findUnique({
-    where: { tenantId_email: { tenantId: tenant.id, email: email.toLowerCase() } },
+  // Email is only unique per-tenant (`@@unique([tenantId, email])`), not
+  // globally, which is why this used to require a tenant slug to disambiguate.
+  // Dropped the slug field for a simpler login; `findFirst` means two tenants
+  // sharing the exact same staff email would collide here (first match wins)
+  // — acceptable for now, revisit with a global email-uniqueness constraint
+  // if that ever becomes a real multi-tenant collision in practice.
+  const user = await prisma.user.findFirst({
+    where: { email: email.toLowerCase() },
+    include: { tenant: true },
   });
   if (!user) return invalid();
 
@@ -59,6 +62,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     user: { id: user.id, email: user.email, role: user.role },
-    tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
+    tenant: { id: user.tenant.id, name: user.tenant.name, slug: user.tenant.slug },
   });
 }

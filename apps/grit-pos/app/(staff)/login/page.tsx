@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [slug, setSlug] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +19,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, email, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
@@ -45,17 +44,6 @@ export default function LoginPage() {
         className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800"
       >
         <h1 className="text-2xl font-bold tracking-tight">Staff sign in</h1>
-
-        <label className="flex flex-col gap-1 text-sm">
-          Restaurant slug
-          <input
-            required
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="my-cafe"
-            className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
-          />
-        </label>
 
         <label className="flex flex-col gap-1 text-sm">
           Email

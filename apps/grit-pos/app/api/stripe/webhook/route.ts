@@ -112,7 +112,11 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
     where: { id: orderId },
     include: {
       tenant: { select: { vatRate: true } },
-      lines: { include: { variant: { select: { sku: true, vatApplicable: true } } } },
+      lines: {
+        include: {
+          variant: { select: { sku: true, vatApplicable: true, inventoryVariantId: true } },
+        },
+      },
       payments: { where: { status: PaymentStatus.succeeded }, select: { amount: true } },
     },
   });
@@ -134,6 +138,7 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
       lines: paid.lines.map((line) => ({
         productId: line.productId,
         variantSku: line.variant?.sku ?? null,
+        variantInventoryId: line.variant?.inventoryVariantId ?? null,
         quantity: line.quantity,
         unitPrice: Number(line.unitPrice),
       })),

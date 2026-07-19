@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
-import { SESSION_COOKIE_NAME } from "@/lib/auth";
+import { GRIT_SESSION_COOKIE, verifySessionToken } from "@grit/passport";
 
 // /api/events/grit is the inbound @grit/shared-events webhook: it carries no
 // session cookie and authenticates via HMAC signature inside the route
@@ -26,16 +25,10 @@ function isServiceBearerRoute(pathname: string, request: NextRequest) {
 }
 
 async function hasValidSession(request: NextRequest): Promise<boolean> {
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const token = request.cookies.get(GRIT_SESSION_COOKIE)?.value;
   if (!token) return false;
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) return false;
-  try {
-    await jwtVerify(token, new TextEncoder().encode(secret));
-    return true;
-  } catch {
-    return false;
-  }
+  const session = await verifySessionToken(token);
+  return session !== null;
 }
 
 export async function proxy(request: NextRequest) {

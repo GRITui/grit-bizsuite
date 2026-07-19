@@ -73,6 +73,7 @@ export async function POST(request: Request) {
       tenantId: tenant.id,
       role: user.role,
       email: user.email,
+      tenant: { tier: tenant.tier, addons: tenant.addons },
     });
 
     return NextResponse.json(

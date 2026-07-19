@@ -24,8 +24,8 @@ export default async function PosLayout({ children }: { children: React.ReactNod
       where: { id: session.tenantId },
       select: { name: true },
     }),
-    // Grit Passport bridge: the horeca session stays the login; a GritSession
-    // is derived from it for suite nav + tier gates (see lib/passportBridge.ts).
+    // Grit Passport bridge: reconstructs the shared GritSession straight from
+    // the grit_passport cookie for suite nav + tier gates (see lib/passportBridge.ts).
     getGritSession(),
   ]);
 

@@ -107,11 +107,13 @@ event delivery.
 Additive `Tenant` columns `tier` (default `'LITE'`) and `addons`
 (`string[]`) mirror `organizations.tier` / `organization_addons`.
 
-This app **keeps its own login** (`horeca_session`, `lib/auth.ts`). The SSO
-bridge step derives a `GritSession` from it per request (`tenantId` →
-`organizationId`, same role vocabulary, tier/addons read from the Tenant
-row) — it does not mint or verify the shared `grit_passport` cookie yet;
-that swap is the future full-SSO step. The derived session feeds:
+This app mints and verifies the shared `grit_passport` cookie (`lib/auth.ts`,
+via `@grit/passport`'s `createSessionToken`/`verifySessionToken`), so a
+session created here is recognized by any other Grit app sharing the same
+`GRIT_SESSION_SECRET`/`SESSION_SECRET`. Tier/addons are stamped into the
+token at login (`tenantId` → `organizationId`, same role vocabulary), so
+`lib/passportBridge.ts` reconstructs the `GritSession` straight from the
+cookie with no per-request DB round-trip. That session feeds:
 
 - `@grit/shared-ui` `AppSwitcher` in the staff layout, showing **only**
   `appsForSession` results (LITE ⇒ POS alone — no layout panel links into
@@ -121,8 +123,10 @@ that swap is the future full-SSO step. The derived session feeds:
 
 ## Environment variables
 
-Required to run: `DATABASE_URL`, `SESSION_SECRET`. Stripe (pickup checkout):
-`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
+Required to run: `DATABASE_URL`, `GRIT_SESSION_SECRET` (falls back to
+`SESSION_SECRET` if unset — see `@grit/passport`). Every Grit BizSuite app
+must share the same value for cross-app SSO to work. Stripe (pickup
+checkout): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
 
 Optional Grit BizSuite integration (all inert when unset — see
 `.env.example`): `GRIT_EVENT_WEBHOOK_SECRET`,
@@ -131,8 +135,6 @@ Optional Grit BizSuite integration (all inert when unset — see
 `GRIT_SURGE_WINDOW_MIN`, `GRIT_SURGE_THRESHOLD`, `GRIT_POS_URL`,
 `GRIT_INVENTORY_URL`, `GRIT_TASKBOARD_URL`, `GRIT_REPORTS_URL`,
 `GRIT_SERVICE_TOKEN`.
-(`GRIT_SESSION_SECRET` becomes relevant only at the full-SSO step; the
-passport bridge doesn't sign tokens.)
 
 `GRIT_SERVICE_TOKEN` gates the service-to-service bearer auth path on
 `GET /api/reports/revenue` (below) — grit-reports' margin aggregator calls

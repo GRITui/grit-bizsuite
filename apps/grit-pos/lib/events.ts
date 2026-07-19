@@ -80,6 +80,13 @@ function prismaOutboxStore(): OutboxStore {
 export interface CompletedOrderLine {
   productId: string;
   variantSku: string | null;
+  /**
+   * Inventory's canonical Variant id (`Variant.inventoryVariantId`), once
+   * backfilled by the inbound `catalog.variant_synced` webhook (see
+   * app/api/events/grit/route.ts). Omitted from the outbound event entirely
+   * when null/undefined — see `publishTransactionCompleted` below.
+   */
+  variantInventoryId?: string | null;
   quantity: number;
   unitPrice: number;
 }
@@ -157,6 +164,7 @@ export async function publishTransactionCompleted(
         sku: eventItemSku(line),
         quantity: line.quantity,
         price: line.unitPrice,
+        ...(line.variantInventoryId ? { inventory_variant_id: line.variantInventoryId } : {}),
       })),
     };
 

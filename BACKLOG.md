@@ -83,6 +83,58 @@ established event-bus pattern rather than inventing a new mechanism:
   explain in the UI; groups scale better once a tenant has more than a
   handful of promotions.
 
+### VAT-inclusive pricing (Thailand 7%, per-item exempt flag)
+
+**Problem:** POS has no tax model at all today — `tax_amount` is hardcoded
+to `0` on every `transaction.completed` event, and `Variant.price` is just
+a flat sticker price with no VAT concept behind it.
+
+**Requirement (as specified):** selling price defaults to **VAT-inclusive**
+at Thailand's standard rate (7%) — the price staff enter and customers see
+*is* the tax-inclusive price, and the excl-VAT/VAT split is derived from it
+for receipts and reporting, not entered separately. Some items are
+VAT-exempt by law, so this needs to be a **per-item flag**, not a
+tenant-wide switch.
+
+**Example (from the request):** sticker price 214 THB → price excl. VAT =
+200 THB, VAT = 14 THB. I.e. `priceExclVat = price / 1.07`,
+`vat = price - priceExclVat` (equivalently `price × 7/107`).
+
+**Proposed design:**
+- `Variant.vatApplicable: Boolean @default(true)` (`apps/grit-pos`'s
+  Variant model) — per-SKU opt-out for legally VAT-exempt items. Default
+  `true` since most retail goods are standard-rated; staff flip it off per
+  item where the law requires it.
+- `price` stays the single source of truth (VAT-inclusive when
+  `vatApplicable`) — no new stored "excl-VAT price" column. Excl-VAT and
+  VAT amounts are computed at render/receipt/reporting time from `price`
+  and the flag, same pattern as `subtotal`/`discountTotal` are already
+  derived-not-stored on `OrderDTO` (see `apps/grit-pos/app/api/orders/_lib/queries.ts`).
+- **Don't hardcode 7%.** Thailand's VAT rate is set by periodically-renewed
+  cabinet resolution (has been temporarily raised before) — make it a
+  tenant-level setting (e.g. `Tenant.vatRate: Decimal @default(7.00)`) so a
+  rate change is a config update, not a code change, and so the platform
+  isn't Thailand-only if it's ever needed elsewhere.
+- Order/receipt total needs a proper VAT breakdown, not just a single
+  number: subtotal excl. VAT, VAT amount, VAT-exempt subtotal (for mixed
+  carts), total incl. VAT — a real Thai tax invoice (ใบกำกับภาษี) itemizes
+  VAT-applicable and VAT-exempt subtotals separately, it doesn't just show
+  one blended tax line.
+- Populating `tax_amount` on `transaction.completed` with the real computed
+  VAT total closes the existing "no tax model" gap noted elsewhere in this
+  doc, and would also feed `DailyReconciliation` (currently cash/card/qr/
+  stripe totals only, no VAT liability column) for daily tax filing.
+
+**Open questions for whoever picks this up:**
+- Does `grit-inventory`'s own B2B `Order`/`OrderLine` pricing need the same
+  treatment for wholesale invoices, or is this POS-only for now (retail
+  checkout is the only place a "sticker price" concept really applies)?
+- Exempt vs. zero-rated: Thai VAT law actually distinguishes VAT-exempt
+  goods from zero-rated (0%) goods (e.g. exports) — both mean "no VAT
+  charged" at checkout but are reported differently for filing. A single
+  `vatApplicable: Boolean` collapses that distinction; fine for MVP, but
+  flag it if proper VAT filing support is ever in scope.
+
 ### Other P0s
 
 - **No automated tests for the WMS/promotions modules.** Groups, locations,
@@ -108,8 +160,9 @@ established event-bus pattern rather than inventing a new mechanism:
 - **POS's synthetic SKU fallback** (`PRD-<internal-id>` when a line has no
   variant SKU) can't be matched by Inventory — cross-app stock decrement
   silently skips those items. Needs shared/real SKUs on both catalogs.
-- **No tax model in POS** (`tax_amount` always `0`) and **no Location
-  model** (the tenant/org id stands in for "the default store" on events).
+- **No Location model in POS** — the tenant/org id stands in for "the
+  default store" on events (see the VAT-inclusive pricing P0 above for the
+  related "no tax model" gap, now fleshed out separately).
 - **Parcel labels are decorative, not scannable.** Self-drawn bar pattern,
   no real barcode symbology (Code128/QR), no carrier integration —
   intentionally an "internal MVP label" per its own doc comment.

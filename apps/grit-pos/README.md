@@ -179,3 +179,4 @@ see the migration file's own header comment for why), following the same
   imports; revisit if the shared packages move to extensionless imports.
 - `lib/prisma.ts` constructs the Prisma client lazily (first access), so
   `next build` succeeds with no env vars set.
+

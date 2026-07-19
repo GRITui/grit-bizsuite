@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
   "installCommand": "cd ../.. && npm install",
-  "buildCommand": "cd ../.. && npm run build --workspace=horeca-pos",
+  "buildCommand": "npx prisma migrate deploy && cd ../.. && npm run build --workspace=horeca-pos",
   "outputDirectory": ".next"
 }

@@ -5,6 +5,7 @@ import { apiError } from "@/lib/api";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
 import {
+  createPromotionSchema,
   fetchExcludedPromotionIds,
   fetchPromotionScopeById,
   fetchPromotionWithScope,
@@ -12,7 +13,6 @@ import {
   syncPromotionExclusions,
   validateExclusionOwnership,
 } from "@/lib/promotions";
-import { createPromotionSchema } from "../route";
 
 /** GET /api/promotions/[id] — one promotion with its scope, for the edit
  * form. */

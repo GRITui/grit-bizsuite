@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DiscountPolicyUpdatedData, PromotionUpdatedData } from "@grit/shared-events/contracts";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
@@ -5,6 +6,72 @@ import { publishDiscountPolicyUpdated, publishPromotionUpdated } from "@/lib/eve
 import { formatCurrency } from "@/lib/format";
 
 type TxClient = Prisma.TransactionClient;
+
+const variantScopeItemSchema = z.object({
+  variantId: z.string().min(1),
+  requiredQuantity: z.number().int().positive().default(1),
+});
+
+const scopeFieldsSchema = z.object({
+  variantIds: z.array(variantScopeItemSchema).default([]),
+  subGroupIds: z.array(z.string().min(1)).default([]),
+});
+
+const baseSchema = z.object({
+  name: z.string().min(1),
+  isActive: z.boolean().default(true),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+  /** Discount resolution policy (BACKLOG.md), layer 2: other promotion ids
+   * this rule must never co-apply with on the same order. Applies to every
+   * promotion type — independent of `type`-specific scope fields. */
+  excludedPromotionIds: z.array(z.string().min(1)).default([]),
+});
+
+const buyXPayYSchema = baseSchema
+  .extend({
+    type: z.literal("buy_x_pay_y"),
+    buyQuantity: z.number().int().positive(),
+    payQuantity: z.number().int().positive(),
+  })
+  .merge(scopeFieldsSchema)
+  .refine((v) => v.payQuantity <= v.buyQuantity, {
+    message: "payQuantity must be less than or equal to buyQuantity",
+    path: ["payQuantity"],
+  })
+  .refine((v) => v.variantIds.length > 0 || v.subGroupIds.length > 0, {
+    message: "Select at least one variant or sub-group to scope this rule to",
+    path: ["variantIds"],
+  });
+
+const buyXGetDiscountSchema = baseSchema
+  .extend({
+    type: z.literal("buy_x_get_discount"),
+    minQuantity: z.number().int().positive(),
+    discountKind: z.enum(["percent", "fixed_amount"]),
+    discountValue: z.number().positive(),
+  })
+  .merge(scopeFieldsSchema)
+  .refine((v) => v.discountKind !== "percent" || v.discountValue <= 100, {
+    message: "A percent discount cannot exceed 100",
+    path: ["discountValue"],
+  })
+  .refine((v) => v.variantIds.length > 0 || v.subGroupIds.length > 0, {
+    message: "Select at least one variant or sub-group to scope this rule to",
+    path: ["variantIds"],
+  });
+
+const bundleDealSchema = baseSchema.extend({
+  type: z.literal("bundle_deal"),
+  bundlePrice: z.number().positive(),
+  variantIds: z.array(variantScopeItemSchema).min(1, "Select at least one variant for the bundle"),
+});
+
+export const createPromotionSchema = z.discriminatedUnion("type", [
+  buyXPayYSchema,
+  buyXGetDiscountSchema,
+  bundleDealSchema,
+]);
 
 /**
  * Grit BizSuite pivot: pricing/promotion rules admin support. Source of

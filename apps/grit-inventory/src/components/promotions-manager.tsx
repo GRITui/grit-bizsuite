@@ -341,7 +341,7 @@ function toDateInputValue(iso: string | null): string {
 /** Create/edit form — shared by both flows (edit seeds every field from
  * `initial`). Submits a full-replace payload matching the API's
  * discriminated-union schema (`createPromotionSchema` in
- * api/promotions/route.ts). */
+ * lib/promotions.ts). */
 function PromotionForm({
   initial,
   variants,

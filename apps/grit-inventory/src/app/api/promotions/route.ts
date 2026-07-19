@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { assertFeature } from "@grit/passport";
 import { db } from "@/lib/db";
 import { apiError } from "@/lib/api";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext } from "@/lib/passport";
 import {
+  createPromotionSchema,
   fetchPromotionScopeById,
   publishPromotionUpdate,
   syncPromotionExclusions,
@@ -17,72 +17,6 @@ import {
  * the existing `inventory.multi_location` feature key (no new key added —
  * same convention as Groups/Locations/Transfers).
  */
-
-const variantScopeItemSchema = z.object({
-  variantId: z.string().min(1),
-  requiredQuantity: z.number().int().positive().default(1),
-});
-
-const scopeFieldsSchema = z.object({
-  variantIds: z.array(variantScopeItemSchema).default([]),
-  subGroupIds: z.array(z.string().min(1)).default([]),
-});
-
-const baseSchema = z.object({
-  name: z.string().min(1),
-  isActive: z.boolean().default(true),
-  startsAt: z.string().datetime().nullable().optional(),
-  endsAt: z.string().datetime().nullable().optional(),
-  /** Discount resolution policy (BACKLOG.md), layer 2: other promotion ids
-   * this rule must never co-apply with on the same order. Applies to every
-   * promotion type — independent of `type`-specific scope fields. */
-  excludedPromotionIds: z.array(z.string().min(1)).default([]),
-});
-
-const buyXPayYSchema = baseSchema
-  .extend({
-    type: z.literal("buy_x_pay_y"),
-    buyQuantity: z.number().int().positive(),
-    payQuantity: z.number().int().positive(),
-  })
-  .merge(scopeFieldsSchema)
-  .refine((v) => v.payQuantity <= v.buyQuantity, {
-    message: "payQuantity must be less than or equal to buyQuantity",
-    path: ["payQuantity"],
-  })
-  .refine((v) => v.variantIds.length > 0 || v.subGroupIds.length > 0, {
-    message: "Select at least one variant or sub-group to scope this rule to",
-    path: ["variantIds"],
-  });
-
-const buyXGetDiscountSchema = baseSchema
-  .extend({
-    type: z.literal("buy_x_get_discount"),
-    minQuantity: z.number().int().positive(),
-    discountKind: z.enum(["percent", "fixed_amount"]),
-    discountValue: z.number().positive(),
-  })
-  .merge(scopeFieldsSchema)
-  .refine((v) => v.discountKind !== "percent" || v.discountValue <= 100, {
-    message: "A percent discount cannot exceed 100",
-    path: ["discountValue"],
-  })
-  .refine((v) => v.variantIds.length > 0 || v.subGroupIds.length > 0, {
-    message: "Select at least one variant or sub-group to scope this rule to",
-    path: ["variantIds"],
-  });
-
-const bundleDealSchema = baseSchema.extend({
-  type: z.literal("bundle_deal"),
-  bundlePrice: z.number().positive(),
-  variantIds: z.array(variantScopeItemSchema).min(1, "Select at least one variant for the bundle"),
-});
-
-export const createPromotionSchema = z.discriminatedUnion("type", [
-  buyXPayYSchema,
-  buyXGetDiscountSchema,
-  bundleDealSchema,
-]);
 
 /** Confirms every referenced variant/sub-group id belongs to the tenant.
  * Returns an error message, or null when everything checks out. */

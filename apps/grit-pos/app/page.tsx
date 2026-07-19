@@ -1,11 +1,7 @@
-export default function Home() {
-  return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <h1 className="text-4xl font-bold tracking-tight">Grit POS</h1>
-      <p className="max-w-md text-zinc-600 dark:text-zinc-400">
-        Front-of-house checkout for SMEs — staff register, QR dine-in, and pickup links. Under
-        construction.
-      </p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+
+export default async function Home() {
+  const session = await getSession();
+  redirect(session ? "/pos" : "/login");
 }

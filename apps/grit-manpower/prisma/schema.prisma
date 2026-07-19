@@ -1,0 +1,240 @@
+// Grit Manpower — standalone workforce app: employee records, scheduling,
+// clock-in/out, and payroll. Deliberately has no foreign key or import
+// relationship to any other Grit BizSuite app's database (see AGENTS.md —
+// cross-app integration is event-only). Standalone for now; SSO
+// (@grit/passport) and shared-events wiring are a deferred follow-up, not
+// part of this MVP.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  owner
+  admin
+  staff
+}
+
+enum EmploymentStatus {
+  active
+  inactive
+  terminated
+}
+
+enum ShiftStatus {
+  scheduled
+  published
+  completed
+  cancelled
+}
+
+enum TimeEntryStatus {
+  open
+  closed
+}
+
+enum PayrollStatus {
+  draft
+  finalized
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  locations      Location[]
+  employees      Employee[]
+  shifts         Shift[]
+  timeEntries    TimeEntry[]
+  payrollPeriods PayrollPeriod[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String
+  passwordHash String
+  role         UserRole @default(staff)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees Employee[]
+  shifts    Shift[]
+
+  @@index([tenantId])
+  @@map("locations")
+}
+
+/// Core HR record: one row per staff member.
+model Employee {
+  id         String           @id @default(cuid())
+  tenantId   String
+  locationId String?
+  firstName  String
+  lastName   String
+  email      String?
+  phone      String?
+  position   String
+  department String?
+  hireDate   DateTime
+  status     EmploymentStatus @default(active)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location       Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  documents      EmployeeDocument[]
+  wageRates      WageRate[]
+  shifts         Shift[]
+  timeEntries    TimeEntry[]
+  payrollRecords PayrollRecord[]
+
+  @@index([tenantId])
+  @@index([locationId])
+  @@map("employees")
+}
+
+/// HR record-keeping: contracts, IDs, certifications, etc. — file storage
+/// itself is out of scope for this MVP, so `fileUrl` is a plain string the
+/// admin pastes in (e.g. a link to wherever the file actually lives).
+model EmployeeDocument {
+  id         String    @id @default(cuid())
+  employeeId String
+  type       String
+  fileName   String
+  fileUrl    String?
+  expiresAt  DateTime?
+  uploadedAt DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_documents")
+}
+
+/// Effective-dated hourly wage. Payroll generation uses whichever row's
+/// `effectiveFrom` is the latest one on/before the payroll period's start.
+model WageRate {
+  id                 String   @id @default(cuid())
+  employeeId         String
+  hourlyRate         Decimal  @db.Decimal(10, 2)
+  overtimeMultiplier Decimal  @default(1.5) @db.Decimal(4, 2)
+  effectiveFrom      DateTime
+  createdAt          DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("wage_rates")
+}
+
+/// A scheduled shift. `employeeId` is nullable so a shift can be published
+/// "open" (unassigned) before someone picks it up.
+model Shift {
+  id         String      @id @default(cuid())
+  tenantId   String
+  locationId String
+  employeeId String?
+  role       String?
+  startsAt   DateTime
+  endsAt     DateTime
+  status     ShiftStatus @default(scheduled)
+  notes      String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location  Location   @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  employee  Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  timeEntry TimeEntry?
+
+  @@index([tenantId])
+  @@index([locationId])
+  @@index([employeeId])
+  @@map("shifts")
+}
+
+/// Attendance: one row per clock-in. `shiftId` is optional — clocking in
+/// doesn't require a pre-scheduled shift (e.g. an unscheduled walk-in cover).
+model TimeEntry {
+  id            String          @id @default(cuid())
+  tenantId      String
+  employeeId    String
+  shiftId       String?         @unique
+  clockIn       DateTime
+  clockOut      DateTime?
+  breakMinutes  Int             @default(0)
+  status        TimeEntryStatus @default(open)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift    Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([employeeId])
+  @@map("time_entries")
+}
+
+/// A payroll run for a date range. Generating it snapshots hours from
+/// `TimeEntry` rows into `PayrollRecord`s — finalizing locks it (the app
+/// should refuse to regenerate a finalized period).
+model PayrollPeriod {
+  id           String        @id @default(cuid())
+  tenantId     String
+  startDate    DateTime
+  endDate      DateTime
+  status       PayrollStatus @default(draft)
+  finalizedAt  DateTime?
+  createdAt    DateTime      @default(now())
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  records PayrollRecord[]
+
+  @@index([tenantId])
+  @@map("payroll_periods")
+}
+
+model PayrollRecord {
+  id              String   @id @default(cuid())
+  payrollPeriodId String
+  employeeId      String
+  regularHours    Decimal  @db.Decimal(8, 2)
+  overtimeHours   Decimal  @db.Decimal(8, 2)
+  hourlyRate      Decimal  @db.Decimal(10, 2)
+  grossPay        Decimal  @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+
+  payrollPeriod PayrollPeriod @relation(fields: [payrollPeriodId], references: [id], onDelete: Cascade)
+  employee      Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollPeriodId, employeeId])
+  @@index([employeeId])
+  @@map("payroll_records")
+}

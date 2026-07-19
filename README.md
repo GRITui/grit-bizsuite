@@ -12,7 +12,8 @@ grit-bizsuite/
 │   ├── grit-pos/          # (formerly horeca-pos)          front-of-house checkout engine
 │   ├── grit-inventory/    # (formerly invento)             multi-location stock tracking
 │   ├── grit-taskboard/    # (formerly Sidekickz)           ops kanban & automation
-│   └── grit-reports/      # (formerly Grit-Report-builder) cross-app report constructor
+│   ├── grit-reports/      # (formerly Grit-Report-builder) cross-app report constructor
+│   └── grit-manpower/     # workforce management: HR records, scheduling, clock-in/out, payroll
 ├── packages/
 │   ├── database/          # @grit/database      canonical schema, migrations, event outbox store
 │   ├── shared-events/     # @grit/shared-events event contracts, webhook signing, bus
@@ -30,6 +31,7 @@ grit-bizsuite/
 | **grit-inventory** | Next.js 16 · Prisma 7 · Neon | **Multi-location** per-store stock (`StoreStock`) with internal **transfer orders**; **FIFO** cost lots + COGS report; **barcode** keyboard-wedge interception; consumes `transaction.completed` (auto-decrement), emits `inventory.threshold_breached` |
 | **grit-taskboard** | No-build JS PWA · Vercel functions · Neon | **Ops kanban** (`todo / in_progress / review / done`) added to the PWA; webhook intake auto-creates *"Restock SKU: X from Supplier Y immediately"* and *"Open auxiliary billing terminal lines"* cards; emits `task.completed` |
 | **grit-reports** | Static vanilla JS · Vercel functions | Excel Group & Analyze tool + **cross-app aggregator**: financial margins (POS revenue − inventory COGS) and labor efficiency (POS volume ÷ task completion speed), gated by the `custom_reporting` addon |
+| **grit-manpower** | Next.js 16 · Prisma 7 · Neon | Employee records (HR profiles + documents), shift **scheduling** per location, **clock-in/out** attendance, and **payroll** generation from time-entry hours + wage rates. **Standalone**: its own auth, no SSO or event-bus wiring yet — a deliberate scope boundary for this first pass, not a gap to silently close |
 
 ## Event flow
 

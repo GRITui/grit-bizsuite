@@ -1,55 +1,29 @@
 import "server-only";
 
-import type { GritSession, GritTier } from "@grit/passport";
-import { hasFeatureAccess } from "@grit/passport";
-import { getSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
+import type { GritSession } from "@grit/passport";
+import { GRIT_SESSION_COOKIE, hasFeatureAccess, verifySessionToken } from "@grit/passport";
 
 // ---------------------------------------------------------------------------
-// Grit Passport bridge (SSO bridge step).
+// Grit Passport bridge.
 //
-// This app keeps its own working login (horeca_session JWT, lib/auth.ts) —
-// Passport is NOT a login replacement here. Instead, the existing session is
-// DERIVED into a `GritSession` so shared suite machinery (AppSwitcher nav,
-// hasFeatureAccess tier gates) works today:
-//
-//   tenantId -> organizationId        role -> role (same vocabulary)
-//   Tenant.tier / Tenant.addons -> tier / addons (loaded fresh per request,
-//   not stamped into a token — this app has no Passport cookie yet)
-//
-// The full SSO step (minting/verifying the shared `grit_passport` cookie via
-// createSessionToken/verifySessionToken) replaces this derivation later.
+// lib/auth.ts's getSession() now maps a real `grit_passport` cookie (a
+// GritSession-shaped JWT, minted at login by createSession) back into this
+// app's local SessionPayload shape for its many existing callers. This
+// bridge instead reads the raw cookie and verifies it directly, since the
+// full GritSession — including `tier`/`addons`, stamped into the token at
+// login — is right there; no need to re-derive it (and no need for the old
+// per-request Tenant lookup for tier/addons, which the token already carries).
 // ---------------------------------------------------------------------------
-
-const TIERS: readonly GritTier[] = ["LITE", "GROWTH", "SCALE"];
-
-function normalizeTier(tier: string | null | undefined): GritTier {
-  return TIERS.includes(tier as GritTier) ? (tier as GritTier) : "LITE";
-}
 
 /**
- * Derives the suite-wide `GritSession` from the current horeca staff session
- * plus the tenant's commercial columns. Returns null when not logged in.
+ * Reconstructs the suite-wide `GritSession` straight from the `grit_passport`
+ * cookie. Returns null when not logged in / the cookie is missing or invalid.
  */
 export async function getGritSession(): Promise<GritSession | null> {
-  const session = await getSession();
-  if (!session) return null;
-
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: session.tenantId },
-    select: { tier: true, addons: true },
-  });
-
-  return {
-    userId: session.userId,
-    organizationId: session.tenantId,
-    locationId: null,
-    // UserRole in this schema is already the unified owner/manager/staff set.
-    role: session.role,
-    email: session.email,
-    tier: normalizeTier(tenant?.tier),
-    addons: tenant?.addons ?? [],
-  };
+  const cookieStore = await cookies();
+  const token = cookieStore.get(GRIT_SESSION_COOKIE)?.value;
+  return verifySessionToken(token);
 }
 
 /** Convenience gate: is this org entitled to a feature (tier + addons)? */

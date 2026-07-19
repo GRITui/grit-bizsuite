@@ -22,8 +22,9 @@ JWT auth (`jose` + `bcryptjs`).
 1. Create a [Neon](https://neon.tech) Postgres database (or point at any
    Postgres instance for local development — see "Local development without
    Neon" below).
-2. Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `AUTH_SECRET`
-   (generate with `openssl rand -base64 32`), and `CRON_SECRET`.
+2. Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `GRIT_SESSION_SECRET`
+   (generate with `openssl rand -base64 32`; must match the other Grit apps
+   for SSO), and `CRON_SECRET`.
 3. Install dependencies and apply the schema:
 
    ```bash
@@ -453,7 +454,8 @@ additionally require the ADMIN role):
 | `GRIT_SUBSCRIBERS_INVENTORY_THRESHOLD_BREACHED` | Comma-separated subscriber URLs (e.g. taskboard webhook) |
 | `GRIT_SUBSCRIBERS_INVENTORY_TRANSFER_COMPLETED` | Comma-separated subscriber URLs (e.g. reports webhook) |
 | `GRIT_POS_URL` / `GRIT_INVENTORY_URL` / `GRIT_TASKBOARD_URL` / `GRIT_REPORTS_URL` | App-switcher base URLs (localhost defaults) |
-| `DATABASE_URL`, `AUTH_SECRET`, `CRON_SECRET` | Unchanged from M1 |
+| `DATABASE_URL`, `CRON_SECRET` | Unchanged from M1 |
+| `GRIT_SESSION_SECRET` | Shared HS256 secret for the `grit_passport` SSO cookie (replaces the old app-local `AUTH_SECRET`); must match every other Grit app |
 
 ### New endpoints
 

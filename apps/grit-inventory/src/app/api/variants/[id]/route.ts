@@ -5,6 +5,7 @@ import { apiError } from "@/lib/api";
 import { applyStockMovement, InsufficientStockError } from "@/lib/inventory";
 import { hasRole } from "@/lib/auth";
 import { entitlementResponse, requireGritContext, assertStoreAccess } from "@/lib/passport";
+import { publishCatalogVariantSynced } from "@/lib/events";
 
 const updateVariantSchema = z.object({
   name: z.string().min(1).optional(),
@@ -33,7 +34,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const session = ctx.local;
   const { id } = await params;
 
-  const existing = await db.variant.findFirst({ where: { id, tenantId: session.tenantId } });
+  const existing = await db.variant.findFirst({
+    where: { id, tenantId: session.tenantId },
+    include: { product: true },
+  });
   if (!existing) return apiError("Variant not found", 404);
 
   const body = await request.json().catch(() => null);
@@ -98,6 +102,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return tx.variant.findUniqueOrThrow({ where: { id } });
     });
 
+    // Catalog sync (BACKLOG.md, SKU-alignment approach 2): only the sku
+    // string is what POS' fallback lookup keys on, so only a sku rename
+    // needs to re-push the id/sku pair — other field edits don't change the
+    // join key. Never blocks/fails the update on publish failure.
+    if (fields.sku !== undefined && fields.sku !== existing.sku) {
+      await publishCatalogVariantSynced(session.tenantId, {
+        inventory_variant_id: variant.id,
+        sku: variant.sku,
+        product_name: existing.product.name,
+      });
+    }
+
     return NextResponse.json({ variant });
   } catch (err: unknown) {
     if (err instanceof InsufficientStockError) {
@@ -116,9 +132,24 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if (!hasRole(session.role, "ADMIN")) return apiError("Forbidden", 403);
   const { id } = await params;
 
-  const existing = await db.variant.findFirst({ where: { id, tenantId: session.tenantId } });
+  const existing = await db.variant.findFirst({
+    where: { id, tenantId: session.tenantId },
+    include: { product: true },
+  });
   if (!existing) return apiError("Variant not found", 404);
 
   await db.variant.update({ where: { id }, data: { isActive: false } });
+
+  // Catalog sync (BACKLOG.md, SKU-alignment approach 2): this is a soft
+  // delete (isActive: false, matching the rest of this app's variant
+  // lifecycle), but from POS' perspective the variant is gone — tell it so
+  // via `deleted: true` rather than leaving a stale id/sku mapping cached.
+  await publishCatalogVariantSynced(session.tenantId, {
+    inventory_variant_id: existing.id,
+    sku: existing.sku,
+    product_name: existing.product.name,
+    deleted: true,
+  });
+
   return NextResponse.json({ ok: true });
 }

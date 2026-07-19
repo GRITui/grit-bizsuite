@@ -2,33 +2,30 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
-import { SignJWT, jwtVerify, type JWTPayload } from "jose";
+import {
+  createSessionToken,
+  verifySessionToken,
+  GRIT_SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+  type GritSession,
+  type GritTier,
+} from "@grit/passport";
 import { prisma } from "@/lib/prisma";
 import type { UserRole } from "@/app/generated/prisma/enums";
 
 // ---------------------------------------------------------------------------
 // Session-based staff authentication, tenant-scoped.
 //
-// Sessions are a signed, httpOnly JWT (HS256) cookie containing just enough
-// to scope every subsequent query: userId + tenantId + role, plus a normal
-// JWT expiry. The cookie is opaque to the browser and can't be read or
-// tampered with client-side.
+// This app mints/verifies the shared Grit Passport session (`grit_passport`
+// cookie, @grit/passport's createSessionToken/verifySessionToken) so a
+// session created here is recognized by any other Grit app sharing the same
+// GRIT_SESSION_SECRET/SESSION_SECRET. The local `SessionPayload` shape below
+// (userId/tenantId/role/email) is kept identical to before so the many
+// existing call sites across this app don't need to change — it's just
+// mapped from the underlying `GritSession` on read.
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE = "horeca_session";
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
-
-function getSessionSecret(): Uint8Array {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    throw new Error(
-      "SESSION_SECRET is not set. Copy .env.example to .env and fill in a random secret (e.g. `openssl rand -base64 32`).",
-    );
-  }
-  return new TextEncoder().encode(secret);
-}
-
-export interface SessionPayload extends JWTPayload {
+export interface SessionPayload {
   userId: string;
   tenantId: string;
   role: UserRole;
@@ -66,27 +63,57 @@ type SessionUser = {
   tenantId: string;
   role: UserRole;
   email: string;
+  /**
+   * Tenant's commercial tier/addons, if the caller already has them in scope
+   * (e.g. from a transaction that just created/loaded the Tenant) — avoids a
+   * redundant lookup. Falls back to a `Tenant` read keyed by `tenantId` when
+   * omitted.
+   */
+  tenant?: { tier: string | null; addons: string[] | null };
 };
 
+const TIERS: readonly GritTier[] = ["LITE", "GROWTH", "SCALE"];
+
+function normalizeTier(tier: string | null | undefined): GritTier {
+  return TIERS.includes(tier as GritTier) ? (tier as GritTier) : "LITE";
+}
+
 /**
- * Signs a session JWT for the given user and sets it as an httpOnly cookie
- * on the current response. Must be called from a Route Handler or Server
- * Function (anywhere `cookies().set` is allowed).
+ * Signs a shared Grit Passport session (`GritSession`) for the given user and
+ * sets it as the `grit_passport` httpOnly cookie on the current response.
+ * Must be called from a Route Handler or Server Function (anywhere
+ * `cookies().set` is allowed).
  */
 export async function createSession(user: SessionUser): Promise<void> {
-  const token = await new SignJWT({
+  let tier: GritTier;
+  let addons: string[];
+  if (user.tenant) {
+    tier = normalizeTier(user.tenant.tier);
+    addons = user.tenant.addons ?? [];
+  } else {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { tier: true, addons: true },
+    });
+    tier = normalizeTier(tenant?.tier);
+    addons = tenant?.addons ?? [];
+  }
+
+  const gritSession: GritSession = {
     userId: user.id,
-    tenantId: user.tenantId,
+    organizationId: user.tenantId,
+    locationId: null,
+    // UserRole in this schema is already the unified owner/manager/staff set.
     role: user.role,
     email: user.email,
-  } satisfies Omit<SessionPayload, keyof JWTPayload>)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
-    .sign(getSessionSecret());
+    tier,
+    addons,
+  };
+
+  const token = await createSessionToken(gritSession);
 
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, token, {
+  cookieStore.set(GRIT_SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -95,37 +122,31 @@ export async function createSession(user: SessionUser): Promise<void> {
   });
 }
 
-/** Clears the session cookie (logout). */
+/** Clears the shared Grit Passport session cookie (logout). */
 export async function destroySession(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE);
+  cookieStore.delete(GRIT_SESSION_COOKIE);
 }
 
 /**
- * Reads and verifies the session cookie for the current request. Returns
- * `null` if there is no cookie, or it's missing/expired/invalid — never
- * throws, so callers can decide how to react.
+ * Reads and verifies the shared `grit_passport` session cookie for the
+ * current request, mapping the `GritSession` back into this app's existing
+ * local `SessionPayload` shape. Returns `null` if there is no cookie, or
+ * it's missing/expired/invalid — never throws, so callers can decide how to
+ * react.
  */
 export async function getSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  const token = cookieStore.get(GRIT_SESSION_COOKIE)?.value;
+  const gritSession = await verifySessionToken(token);
+  if (!gritSession) return null;
 
-  try {
-    const { payload } = await jwtVerify(token, getSessionSecret());
-    if (
-      typeof payload.userId !== "string" ||
-      typeof payload.tenantId !== "string" ||
-      typeof payload.role !== "string" ||
-      typeof payload.email !== "string"
-    ) {
-      return null;
-    }
-    return payload as SessionPayload;
-  } catch {
-    // Expired, bad signature, malformed — all treated as "not logged in".
-    return null;
-  }
+  return {
+    userId: gritSession.userId,
+    tenantId: gritSession.organizationId,
+    role: gritSession.role as UserRole,
+    email: gritSession.email,
+  };
 }
 
 /**

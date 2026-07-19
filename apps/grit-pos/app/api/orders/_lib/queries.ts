@@ -29,9 +29,12 @@ export const orderInclude = {
     orderBy: { id: "asc" },
     include: {
       product: { select: { id: true, name: true } },
-      // sku feeds transaction.completed event items (lib/events.ts).
-      // vatApplicable feeds the VAT breakdown below (per-item exempt flag).
-      variant: { select: { id: true, name: true, sku: true, vatApplicable: true } },
+      // sku + inventoryVariantId feed transaction.completed event items
+      // (lib/events.ts). vatApplicable feeds the VAT breakdown below
+      // (per-item exempt flag).
+      variant: {
+        select: { id: true, name: true, sku: true, vatApplicable: true, inventoryVariantId: true },
+      },
       addOns: {
         include: { addOn: { select: { id: true, name: true } } },
       },

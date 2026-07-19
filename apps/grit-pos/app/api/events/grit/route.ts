@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import {
   parseGritEvent,
+  type CatalogVariantSyncedEvent,
   type DiscountPolicyUpdatedEvent,
   type PromotionUpdatedEvent,
 } from "@grit/shared-events/contracts";
@@ -29,6 +30,17 @@ import { prisma } from "@/lib/prisma";
 // time — is the only way a promotion rule or the stacking policy ever
 // reaches the register (see PromotionRule/Tenant's schema.prisma doc
 // comments and lib/promotions.ts's resolution step).
+//
+// Also handles `catalog.variant_synced` (see BACKLOG.md's P1 scoping doc,
+// approach 2): backfills `Variant.inventoryVariantId` by matching the
+// event's `sku` against this tenant's local Variant rows, so
+// `transaction.completed` can carry the real Inventory-side id going
+// forward instead of relying purely on SKU-string matching. POS's own
+// catalog is the source of truth for which variants exist, so a sku with
+// no local match is a no-op (not a create) — see Variant.inventoryVariantId's
+// doc comment in schema.prisma. `deleted: true` is left as an
+// informational no-op here too: "POS should stop offering it" is a
+// separate concern (out of scope for this id-sync handler).
 //
 // Tenancy: the envelope's `organization_id` is used directly as
 // `PromotionRule.tenantId` (opaque text, matched by equality) — the same
@@ -79,6 +91,10 @@ export async function POST(request: Request) {
       }
       case "discount_policy.updated": {
         const result = await handleDiscountPolicyUpdated(event as DiscountPolicyUpdatedEvent);
+        return NextResponse.json(result);
+      }
+      case "catalog.variant_synced": {
+        const result = await handleCatalogVariantSynced(event as CatalogVariantSyncedEvent);
         return NextResponse.json(result);
       }
       default:
@@ -146,5 +162,29 @@ async function handleDiscountPolicyUpdated(event: DiscountPolicyUpdatedEvent) {
     ok: true,
     action: result.count > 0 ? ("synced" as const) : ("ignored_unknown_tenant" as const),
     organization_id,
+  };
+}
+
+/**
+ * Backfills `Variant.inventoryVariantId` for the local Variant matching
+ * `data.sku` (tenant+sku scoped, same as `Variant.@@unique([tenantId, sku])`).
+ * `updateMany` (not `update`) so a sku this POS instance has no Variant for
+ * — either never synced, or a hospitality item with no sku at all — is a
+ * no-op rather than a throw: POS's own catalog is the source of truth for
+ * which variants exist, this only backfills the id once a match is found.
+ * `deleted: true` is intentionally not distinguished here — see this
+ * route's top-of-file doc comment.
+ */
+async function handleCatalogVariantSynced(event: CatalogVariantSyncedEvent) {
+  const { organization_id, data } = event;
+
+  const result = await prisma.variant.updateMany({
+    where: { tenantId: organization_id, sku: data.sku },
+    data: { inventoryVariantId: data.inventory_variant_id },
+  });
+  return {
+    ok: true,
+    action: result.count > 0 ? ("synced" as const) : ("ignored_no_local_match" as const),
+    sku: data.sku,
   };
 }

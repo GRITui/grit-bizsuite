@@ -1,4 +1,5 @@
 import type {
+  CatalogVariantSyncedData,
   DiscountPolicyUpdatedData,
   GritEvent,
   GritEventName,
@@ -199,5 +200,23 @@ export async function publishDiscountPolicyUpdated(
 ): Promise<void> {
   await publishEventSafe(
     sharedEvents.buildEvent("discount_policy.updated", organizationId, data)
+  );
+}
+
+/**
+ * Catalog sync (BACKLOG.md, SKU-alignment approach 2, real fix): published
+ * whenever a Variant this app owns is created, has its `sku` renamed, or is
+ * deleted. Grit Inventory is the canonical source of catalog identity — Grit
+ * POS stores `inventory_variant_id` as a durable join key once it receives
+ * this event, instead of relying purely on SKU-string matching (which drifts
+ * the moment either side's SKU changes independently). See
+ * CatalogVariantSyncedData's docstring in @grit/shared-events/contracts.
+ */
+export async function publishCatalogVariantSynced(
+  organizationId: string,
+  data: CatalogVariantSyncedData
+): Promise<void> {
+  await publishEventSafe(
+    sharedEvents.buildEvent("catalog.variant_synced", organizationId, data)
   );
 }

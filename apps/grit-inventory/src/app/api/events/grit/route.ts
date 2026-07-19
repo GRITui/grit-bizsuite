@@ -18,8 +18,12 @@ import { publishThresholdBreached } from "@/lib/events";
  * Tenancy mapping: the envelope's `organization_id` is resolved by EQUALITY
  * with this app's `Tenant.id` (documented in README). `location_id` is
  * matched against `Store.id`; unknown locations fall back to the tenant's
- * default store. Unknown SKUs are skipped and reported in the response's
- * `warnings` array (still HTTP 200 so the publisher does not retry forever).
+ * default store. Each item is matched by `inventory_variant_id` first (when
+ * present) and falls back to SKU-string matching otherwise (BACKLOG.md,
+ * SKU-alignment approach 2 — see `catalog.variant_synced` in
+ * @grit/shared-events/contracts). Items that miss both lookups are skipped
+ * and reported in the response's `warnings` array (still HTTP 200 so the
+ * publisher does not retry forever).
  */
 export async function POST(request: NextRequest) {
   const secret = process.env.GRIT_EVENT_WEBHOOK_SECRET;
@@ -145,9 +149,23 @@ async function handleTransactionCompleted(event: TransactionCompletedEvent) {
     let processed = 0;
 
     for (const item of items) {
-      const variant = await tx.variant.findUnique({
-        where: { tenantId_sku: { tenantId: tenant.id, sku: item.sku } },
-      });
+      // SKU-alignment fix (BACKLOG.md, approach 2): once Grit POS has
+      // received a `catalog.variant_synced` event for this variant it caches
+      // and sends Inventory's own `inventory_variant_id` as the durable join
+      // key. Try that first — it's immune to either side's `sku` string
+      // drifting out of sync — and only fall back to the SKU-string lookup
+      // when no id was sent (pre-sync sale) or the id lookup misses (e.g. the
+      // variant was deleted here after POS cached the id).
+      let variant = item.inventory_variant_id
+        ? await tx.variant.findFirst({
+            where: { id: item.inventory_variant_id, tenantId: tenant.id },
+          })
+        : null;
+      if (!variant) {
+        variant = await tx.variant.findUnique({
+          where: { tenantId_sku: { tenantId: tenant.id, sku: item.sku } },
+        });
+      }
       if (!variant) {
         warnings.push(`Unknown SKU ${item.sku} — skipped`);
         // Visibility stopgap (BACKLOG.md, SKU-alignment approach 3): the

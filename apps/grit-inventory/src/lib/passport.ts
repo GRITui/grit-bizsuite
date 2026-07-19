@@ -3,13 +3,12 @@ import {
   EntitlementError,
   assertFeature,
   hasFeatureAccess,
-  type GritRole,
   type GritSession,
   type GritTier,
 } from "@grit/passport";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import type { Role, SessionPayload } from "@/lib/auth";
+import { ROLE_TO_GRIT, type SessionPayload } from "@/lib/auth";
 
 /**
  * Grit Passport bridge — maps this app's legacy JWT session onto the shared
@@ -23,12 +22,6 @@ import type { Role, SessionPayload } from "@/lib/auth";
  * `tier` and `addons` live on the local `Tenant` row (additive columns) and
  * are resolved per request.
  */
-
-const LEGACY_ROLE_MAP: Record<Role, GritRole> = {
-  OWNER: "owner",
-  ADMIN: "manager",
-  STAFF: "staff",
-};
 
 const VALID_TIERS: readonly GritTier[] = ["LITE", "GROWTH", "SCALE"];
 
@@ -44,7 +37,7 @@ export function toGritSession(
     userId: local.sub,
     organizationId: local.tenantId,
     locationId: local.storeId,
-    role: LEGACY_ROLE_MAP[local.role],
+    role: ROLE_TO_GRIT[local.role],
     email: local.email,
     name: local.name,
     tier: normalizeTier(tenant.tier),

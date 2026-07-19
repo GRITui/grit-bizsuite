@@ -222,6 +222,14 @@ model Variant {
   tenantId String?
   /// Optional child SKU for retail variant-matrix products (e.g. TSHIRT-L-BLK).
   sku String? @db.VarChar(100)
+  /// Inventory's canonical Variant.id, backfilled by the inbound
+  /// `catalog.variant_synced` webhook once a local Variant's `sku` matches
+  /// (see app/api/events/grit/route.ts). The durable join key for
+  /// `transaction.completed` going forward — `sku` string-matching remains
+  /// the fallback for lines synced before this id was known (see
+  /// packages/shared-events/src/contracts.ts's CatalogVariantSyncedData doc
+  /// comment).
+  inventoryVariantId String?
   /// Attribute axes for matrix variants, e.g. {"size":"L","color":"black"} —
   /// mirrors product_variants.attributes in @grit/database.
   attributes Json?

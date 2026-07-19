@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiError, requireApiSession } from "@/lib/api";
 import { applyStockMovement } from "@/lib/inventory";
+import { publishCatalogVariantSynced } from "@/lib/events";
 
 const createVariantSchema = z.object({
   sku: z.string().min(1),
@@ -59,6 +60,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
 
       return tx.variant.findUniqueOrThrow({ where: { id: created.id } });
+    });
+
+    // Catalog sync (BACKLOG.md, SKU-alignment approach 2): push the new
+    // canonical id/sku pair to Grit POS so it can join on id instead of the
+    // sku string. Never blocks/fails the create — publishCatalogVariantSynced
+    // swallows delivery errors internally.
+    await publishCatalogVariantSynced(session.tenantId, {
+      inventory_variant_id: variant.id,
+      sku: variant.sku,
+      product_name: product.name,
     });
 
     return NextResponse.json({ variant }, { status: 201 });

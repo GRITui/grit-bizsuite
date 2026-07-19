@@ -114,6 +114,7 @@ function collectEventLines(order: OrderWithRelations): CompletedOrderLine[] {
   return order.lines.map((line) => ({
     productId: line.productId,
     variantSku: line.variant?.sku ?? null,
+    variantInventoryId: line.variant?.inventoryVariantId ?? null,
     quantity: line.quantity,
     unitPrice: Number(line.unitPrice),
   }));
@@ -286,6 +287,7 @@ async function applyQuickSaleOp(
       productId: product.id,
       variantId: variant?.id ?? null,
       variantSku: variant?.sku ?? null,
+      variantInventoryId: variant?.inventoryVariantId ?? null,
       // Defaults to standard-rated (true) for lines with no variant
       // selected, same default as the Variant model itself.
       vatApplicable: variant?.vatApplicable ?? true,
@@ -379,6 +381,7 @@ async function applyQuickSaleOp(
       lines: preparedLines.map((line) => ({
         productId: line.productId,
         variantSku: line.variantSku,
+        variantInventoryId: line.variantInventoryId,
         quantity: line.quantity,
         unitPrice: Number(line.unitPrice),
       })),

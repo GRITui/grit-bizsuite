@@ -20,7 +20,7 @@ import { errorResponse, HttpError } from "../_lib/http";
 // everywhere in this app: a succeeded Payment row, independent of channel.
 //
 // Auth — EITHER of:
-//   - An existing staff session (horeca_session cookie), scoped to that
+//   - An existing staff session (grit_passport cookie), scoped to that
 //     staff member's own tenant, same as every other app/api/** route
 //     (see lib/tenant.ts's requireTenant/requireTenantId pattern).
 //   - A service-to-service bearer token: `Authorization: Bearer

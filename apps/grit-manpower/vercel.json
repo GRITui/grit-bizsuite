@@ -1,0 +1,6 @@
+{
+  "framework": "nextjs",
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand": "npx prisma migrate deploy && cd ../.. && npm run build --workspace=grit-manpower",
+  "outputDirectory": ".next"
+}

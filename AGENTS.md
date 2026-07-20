@@ -1,6 +1,6 @@
 # Grit BizSuite monorepo
 
-npm-workspaces + turbo monorepo. Four apps under `apps/`, shared packages under
+npm-workspaces + turbo monorepo. Five apps under `apps/`, shared packages under
 `packages/`. Each app must keep running standalone (its own deploy, its own
 `package.json`); cross-app integration happens ONLY through the event contracts
 in `packages/shared-events` (HMAC-signed internal webhooks + Postgres outbox) —
@@ -18,6 +18,13 @@ never through direct cross-app database queries.
   PWA. Ops kanban with event-driven card automation.
 - `apps/grit-reports` — static vanilla-JS report constructor (bundled SheetJS +
   Chart.js). Cross-app aggregation endpoints live behind feature flags.
+- `apps/grit-manpower` — Next.js 16 + Prisma 7 + Neon. Workforce management:
+  employee records, shift scheduling, clock-in/out attendance, payroll.
+  **Standalone for now**, deliberately: its own auth (a local session cookie,
+  not the shared `@grit/passport` one the other four apps use) and no
+  `@grit/shared-events` publishing/consuming yet. SSO and event-bus wiring are
+  a scoped future pass, not an oversight — don't add them without picking that
+  up as its own task.
 
 ## The Next.js you know is wrong
 

@@ -92,7 +92,7 @@ export function CartPanel({
           type="button"
           onClick={onSubmit}
           disabled={submitting}
-          className="rounded bg-zinc-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
+          className="rounded bg-accent-600 px-4 py-3 text-sm font-semibold text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:hover:bg-accent-400 dark:text-zinc-950"
         >
           {submitting ? "Sending to kitchen…" : "Send order to kitchen"}
         </button>

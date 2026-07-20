@@ -172,7 +172,7 @@ export default function OrderBuilder({
           </div>
           <button
             onClick={() => router.push("/pos")}
-            className="text-sm text-zinc-500 underline dark:text-zinc-400"
+            className="text-sm text-zinc-500 hover:text-accent-600 dark:text-zinc-400 dark:hover:text-accent-400"
           >
             Back to orders
           </button>
@@ -195,7 +195,7 @@ export default function OrderBuilder({
               onClick={() => setActiveCategoryId(category.id)}
               className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium ${
                 activeCategory?.id === category.id
-                  ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
+                  ? "bg-accent-600 text-white dark:bg-accent-500 dark:text-zinc-950"
                   : "bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
               }`}
             >
@@ -291,7 +291,7 @@ export default function OrderBuilder({
           <button
             disabled={order.lines.length === 0 || order.status === "closed" || order.status === "cancelled" || pending}
             onClick={() => setShowTender(true)}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
+            className="rounded bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:hover:bg-accent-400 dark:text-zinc-950"
           >
             Tender payment
           </button>

@@ -138,7 +138,7 @@ export function ProductPicker({ product, onCancel, onAdd }: ProductPickerProps) 
                 unitPrice,
               })
             }
-            className="flex-1 rounded bg-zinc-900 px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-zinc-900"
+            className="flex-1 rounded bg-accent-600 px-4 py-2 text-sm font-semibold text-white hover:bg-accent-700 dark:bg-accent-500 dark:hover:bg-accent-400 dark:text-zinc-950"
           >
             Add · {(unitPrice * quantity).toFixed(2)}
           </button>

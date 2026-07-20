@@ -54,8 +54,12 @@ export async function POST(request: Request) {
 
   try {
     const { tenant, user } = await prisma.$transaction(async (tx) => {
+      // MVP launch is free for every signup: stamp full entitlements at
+      // creation rather than stripping out the tier/addon gates themselves,
+      // so introducing real pricing later is a one-line default change, not
+      // a rewrite of @grit/passport's entitlement checks.
       const tenant = await tx.tenant.create({
-        data: { name: tenantName, slug },
+        data: { name: tenantName, slug, tier: "SCALE", addons: ["custom_reporting"] },
       });
       const user = await tx.user.create({
         data: {

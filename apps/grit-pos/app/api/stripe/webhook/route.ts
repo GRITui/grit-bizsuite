@@ -111,7 +111,7 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
   const paid = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
-      tenant: { select: { vatRate: true } },
+      tenant: { select: { vatRate: true, vatMode: true } },
       lines: {
         include: {
           variant: { select: { sku: true, vatApplicable: true, inventoryVariantId: true } },
@@ -126,7 +126,7 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
   const paidTotal = paid.payments.reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
   if (!paidTotal.greaterThanOrEqualTo(subtotal)) return;
 
-  const { vatAmount } = computeOrderVat(paid.lines, paid.tenant.vatRate);
+  const { vatAmount } = computeOrderVat(paid.lines, paid.tenant.vatRate, paid.tenant.vatMode);
 
   after(async () => {
     const publishResult = await publishTransactionCompleted({

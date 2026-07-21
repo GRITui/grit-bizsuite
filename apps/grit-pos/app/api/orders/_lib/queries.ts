@@ -24,7 +24,7 @@ import { sumDecimals } from "./pricing";
 export const orderInclude = {
   table: { select: { id: true, label: true } },
   // vatRate feeds the VAT breakdown below (Tenant-level, not hardcoded).
-  tenant: { select: { vatRate: true } },
+  tenant: { select: { vatRate: true, vatMode: true } },
   lines: {
     orderBy: { id: "asc" },
     include: {
@@ -180,10 +180,38 @@ export interface VatComputableLine {
   variant: { vatApplicable: boolean } | null;
 }
 
+/** Tenant.vatMode values. 'EXCLUSIVE' is deliberately not handled below —
+ * see the schema doc-comment on Tenant.vatMode for why. */
+export type VatMode = "INCLUSIVE" | "NONE" | "EXCLUSIVE";
+
 export function computeOrderVat(
   lines: VatComputableLine[],
   vatRate: Decimal,
+  vatMode: string = "INCLUSIVE",
 ): { subtotalExclVat: Decimal; vatAmount: Decimal; vatExemptSubtotal: Decimal } {
+  const subtotal = sumDecimals(lines.map((l) => l.lineTotal));
+
+  if (vatMode === "NONE") {
+    // No VAT at all — the whole cart reads as excl-VAT with nothing to
+    // split out, regardless of each line's `vatApplicable` flag.
+    return {
+      subtotalExclVat: subtotal.toDecimalPlaces(2),
+      vatAmount: new Decimal(0),
+      vatExemptSubtotal: new Decimal(0),
+    };
+  }
+
+  if (vatMode !== "INCLUSIVE") {
+    // 'EXCLUSIVE' (VAT added on top) changes what "the charged total" means
+    // everywhere balanceDue/amountDue is computed from `lineTotal` — tender,
+    // offline-sync, and the Stripe webhook all assume today's lineTotal IS
+    // the final charged price. Failing loudly here beats silently
+    // under-charging every order once this mode is switched on.
+    throw new Error(
+      `Tenant.vatMode "${vatMode}" is not yet supported — checkout totals still assume VAT-inclusive pricing (see computeOrderVat).`,
+    );
+  }
+
   const divisor = new Decimal(1).plus(vatRate.dividedBy(100));
 
   let subtotalExclVat = new Decimal(0);
@@ -202,7 +230,14 @@ export function computeOrderVat(
     }
   }
 
-  return { subtotalExclVat, vatAmount, vatExemptSubtotal };
+  // Round only at the end, once, so per-line rounding error doesn't
+  // accumulate across a multi-line cart — the persisted/emitted taxAmount
+  // must never carry more than cent precision.
+  return {
+    subtotalExclVat: subtotalExclVat.toDecimalPlaces(2),
+    vatAmount: vatAmount.toDecimalPlaces(2),
+    vatExemptSubtotal: vatExemptSubtotal.toDecimalPlaces(2),
+  };
 }
 
 export async function serializeOrder(order: OrderWithRelations): Promise<OrderDTO> {
@@ -216,6 +251,7 @@ export async function serializeOrder(order: OrderWithRelations): Promise<OrderDT
   const { subtotalExclVat, vatAmount, vatExemptSubtotal } = computeOrderVat(
     order.lines,
     order.tenant.vatRate,
+    order.tenant.vatMode,
   );
 
   return {

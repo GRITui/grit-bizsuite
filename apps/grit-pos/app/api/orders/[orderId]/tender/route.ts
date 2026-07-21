@@ -139,7 +139,7 @@ export async function POST(
     // as the transaction total, not the raw line subtotal — it's what was
     // actually charged.
     if (isFullyPaid) {
-      const { vatAmount } = computeOrderVat(updated.lines, updated.tenant.vatRate);
+      const { vatAmount } = computeOrderVat(updated.lines, updated.tenant.vatRate, updated.tenant.vatMode);
       after(async () => {
         const publishResult = await publishTransactionCompleted({
           tenantId,

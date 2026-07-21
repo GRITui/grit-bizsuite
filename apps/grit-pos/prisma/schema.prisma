@@ -76,12 +76,22 @@ model Tenant {
   /// organization_addons in @grit/database (flattened to a string[] here).
   addons String[] @default([])
 
-  /// VAT rate (percent) applied to VAT-inclusive selling prices, e.g. 7.00
-  /// for Thailand's standard rate. Tenant-configurable (not hardcoded)
-  /// since the rate is set by periodically-renewed cabinet resolution.
-  /// Excl-VAT/VAT split is derived at read time from `price` and
-  /// `Variant.vatApplicable` — see app/api/orders/_lib/queries.ts.
+  /// VAT rate (percent) applied per `vatMode`, e.g. 7.00 for Thailand's
+  /// standard rate. Tenant-configurable (not hardcoded) since the rate is
+  /// set by periodically-renewed cabinet resolution. Excl-VAT/VAT split is
+  /// derived at read time from `price` and `Variant.vatApplicable` — see
+  /// app/api/orders/_lib/queries.ts.
   vatRate Decimal @db.Decimal(5, 2) @default(7.00)
+
+  /// How `vatRate` applies to a line's stored price. 'INCLUSIVE' (default):
+  /// price already includes VAT, which is split back out for reporting only
+  /// — the charged total is unchanged. 'NONE': no VAT at all (vatRate
+  /// ignored). 'EXCLUSIVE': price excludes VAT, which must be added on top
+  /// of the charged total — NOT YET WIRED into checkout/tender/balance-due
+  /// math (see computeOrderVat), so setting this today throws rather than
+  /// silently under-charging; flip only once that follow-up ships. Opaque
+  /// String, same "cross-app pivot field" convention as `tier` above.
+  vatMode String @default("INCLUSIVE")
 
   /// Tenant-wide discount-stacking policy, synced from grit-inventory's
   /// `discount_policy.updated` event (app/api/events/grit/route.ts) — same

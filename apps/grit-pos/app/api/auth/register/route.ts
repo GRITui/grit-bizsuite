@@ -61,6 +61,13 @@ export async function POST(request: Request) {
       const tenant = await tx.tenant.create({
         data: { name: tenantName, slug, tier: "SCALE", addons: ["custom_reporting"] },
       });
+      // Every tenant needs a default Store so `location_id` in outbound
+      // events resolves to a real Store id (see Store's schema doc-comment
+      // and lib/stores.ts resolveOrderStoreId) rather than falling back to
+      // the tenant id. Single-store-only for now — no store-picker UI yet.
+      await tx.store.create({
+        data: { tenantId: tenant.id, name: "Main", code: "MAIN", isDefault: true },
+      });
       const user = await tx.user.create({
         data: {
           tenantId: tenant.id,

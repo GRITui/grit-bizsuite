@@ -66,7 +66,7 @@ function RecordPaymentForm({ orderId, total }: { orderId: string; total: number 
       <button
         type="submit"
         disabled={loading}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+        className="rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:text-zinc-950"
       >
         {loading ? "Recording..." : "Record payment"}
       </button>
@@ -95,7 +95,7 @@ export function OrderActions({ orderId, status, total }: { orderId: string; stat
   }
 
   const buttonClass =
-    "rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900";
+    "rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:text-zinc-950";
   const dangerClass =
     "rounded-md px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950/40";
 

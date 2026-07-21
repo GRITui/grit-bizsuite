@@ -90,7 +90,7 @@ export default async function LocationsPage({
               href={`/admin/locations?store=${s.id}`}
               className={`rounded-md px-2.5 py-1 font-medium ${
                 selectedStore.id === s.id
-                  ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                  ? "bg-accent-600 text-white dark:bg-accent-500 dark:text-zinc-950"
                   : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
               }`}
             >

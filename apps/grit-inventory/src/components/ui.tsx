@@ -34,7 +34,7 @@ export function LinkButton({ href, children }: { href: string; children: React.R
   return (
     <Link
       href={href}
-      className="inline-flex items-center rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900"
+      className="inline-flex items-center rounded-md bg-accent-600 px-3 py-2 text-sm font-medium text-white hover:bg-accent-700 dark:bg-accent-500 dark:text-zinc-950"
     >
       {children}
     </Link>

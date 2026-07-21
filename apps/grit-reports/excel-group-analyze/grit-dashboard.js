@@ -133,7 +133,7 @@
         type: "bar",
         label: "Revenue",
         data: daily.map((d) => d.revenue),
-        backgroundColor: "#2d6cdf",
+        backgroundColor: "#bd5f31",
       },
     ];
     if (hasCogs) {
@@ -141,7 +141,7 @@
         type: "bar",
         label: "COGS",
         data: daily.map((d) => d.cogs),
-        backgroundColor: "#df4b4b",
+        backgroundColor: "#c94f4f",
       });
     }
     if (hasMargin) {
@@ -149,13 +149,17 @@
         type: "line",
         label: "Margin",
         data: daily.map((d) => d.margin),
-        borderColor: "#2ddf8a",
-        backgroundColor: "#2ddf8a",
+        borderColor: "#5c9d6e",
+        backgroundColor: "#5c9d6e",
         fill: false,
         tension: 0.25,
         yAxisID: "y",
       });
     }
+    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const legendColor = isDark ? "#f5f1ea" : "#29201a";
+    const tickColor = isDark ? "#b7a78f" : "#93816a";
+    const gridColor = isDark ? "#3a3024" : "#e9e2d6";
     chart = new Chart(canvas.getContext("2d"), {
       type: "bar",
       data: {
@@ -165,10 +169,10 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: "#eee" } } },
+        plugins: { legend: { labels: { color: legendColor } } },
         scales: {
-          x: { ticks: { color: "#aaa" }, grid: { color: "#333" } },
-          y: { ticks: { color: "#aaa" }, grid: { color: "#333" } },
+          x: { ticks: { color: tickColor }, grid: { color: gridColor } },
+          y: { ticks: { color: tickColor }, grid: { color: gridColor } },
         },
       },
     });

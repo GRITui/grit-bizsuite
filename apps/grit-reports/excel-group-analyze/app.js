@@ -1516,7 +1516,7 @@ function applyJoin(rows) {
 
 // 13 colors so the series cap's worst case (12 kept + "Other") never repeats a color
 const VIZ_PALETTE = [
-  '#2d6cdf', '#3a7d44', '#d98c2b', '#a15cc4', '#c94f4f', '#3aa0a0', '#c9a53a', '#6b7bd6',
+  '#bd5f31', '#3a7d44', '#d98c2b', '#a15cc4', '#c94f4f', '#3aa0a0', '#c9a53a', '#6b7bd6',
   '#d46a9e', '#8ab84a', '#b08968', '#9e9e9e', '#54b8e0',
 ];
 
@@ -1665,8 +1665,8 @@ function renderCharts(rows, cols) {
     datasets = [{
       label: cfg.valueCol,
       data: sorted.map((r) => Number(r[cfg.valueCol]) || 0),
-      backgroundColor: '#2d6cdf',
-      borderColor: '#2d6cdf',
+      backgroundColor: '#bd5f31',
+      borderColor: '#bd5f31',
       fill: false,
       tension: 0.25,
     }];
@@ -1687,8 +1687,9 @@ function renderCharts(rows, cols) {
   }
   if (labels.length === 0) return;
 
-  const textColor = '#bbb';
-  const gridColor = '#3a3a3a';
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textColor = isDark ? '#b7a78f' : '#93816a';
+  const gridColor = isDark ? '#4a3d30' : '#e9e2d6';
   const unit = cfg.unit;
 
   let scales = {};
@@ -1751,8 +1752,8 @@ function formatVizValue(v, unit) {
 
 // Low -> high sequential interpolation between the shared dark-theme color-scale endpoints
 function colorScaleColor(t) {
-  const lo = [0x26, 0x30, 0x4a];
-  const hi = [0x2d, 0x6c, 0xdf];
+  const lo = [0x45, 0x21, 0x13];
+  const hi = [0xbd, 0x5f, 0x31];
   const rgb = lo.map((c, i) => Math.round(c + (hi[i] - c) * t));
   return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
 }
@@ -2457,13 +2458,14 @@ document.getElementById('helpBtn').addEventListener('click', () => {
 document.getElementById('downloadChartBtn').addEventListener('click', () => {
   if (!vizChartInstance) return;
   const a = document.createElement('a');
-  // Draw onto an opaque dark background so the PNG is readable outside the app
+  // Draw onto an opaque background (matching the current theme) so the PNG
+  // is readable outside the app — the live chart canvas itself is transparent.
   const src = vizCanvas;
   const copy = document.createElement('canvas');
   copy.width = src.width;
   copy.height = src.height;
   const ctx = copy.getContext('2d');
-  ctx.fillStyle = '#1e1e1e';
+  ctx.fillStyle = window.matchMedia('(prefers-color-scheme: dark)').matches ? '#1a140f' : '#faf8f5';
   ctx.fillRect(0, 0, copy.width, copy.height);
   ctx.drawImage(src, 0, 0);
   a.href = copy.toDataURL('image/png');

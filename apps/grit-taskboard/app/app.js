@@ -10,7 +10,7 @@
  * "Freelanz" app). Rebranded to Sidekick and promoted to be the flagship app —
  * see RENAME/MIGRATION below for how existing local data carries over.
  */
-const APP_VERSION = '0.9.37';          // <-> sw.js SW_VERSION 'sidekick-v0.9.37'
+const APP_VERSION = '0.9.38';          // <-> sw.js SW_VERSION 'sidekick-v0.9.38'
 
 // ─── DB ───────────────────────────────────────────────────────────────
 // Per-uid keyed stores (guest uid = 'guest'). M1 actively uses users / jobs /
@@ -535,7 +535,7 @@ const STAGE_META = {
   quote:    {label:'stage_quote_label',    dot:'#8B5CF6', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:1em;height:1em;display:inline-block;vertical-align:middle"><path d="M21 12a8 8 0 0 1-11.5 7.2L3 21l1.8-6.5A8 8 0 1 1 21 12z"/></svg>', action:'stage_quote_action',       done:'stage_quote_done', skippable:true, hint:'stage_quote_hint'},
   invoice:  {label:'stage_invoice_label',  dot:'#F59E0B', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:1em;height:1em;display:inline-block;vertical-align:middle"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>', action:'stage_invoice_action',      done:'stage_invoice_done', skippable:true, hint:'stage_invoice_hint'},
   paid:     {label:'stage_paid_label',     dot:'#2F9E5B', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:1em;height:1em;display:inline-block;vertical-align:middle"><circle cx="12" cy="12" r="9"/><path d="M12 7v10"/><path d="M14.5 9.3C14.5 8.3 13.4 8 12 8s-2.5.6-2.5 1.7c0 2.4 5 1.2 5 3.6 0 1.1-1.1 1.7-2.5 1.7s-2.5-.4-2.5-1.4"/></svg>', action:'stage_paid_action',         done:'stage_paid_done', hint:'stage_paid_hint'},
-  delivery: {label:'stage_delivery_label', dot:'#22554B', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:1em;height:1em;display:inline-block;vertical-align:middle"><path d="M14.5 5.5a3.5 3.5 0 0 0-4.6 4.4L4 15.8V20h4.2l5.9-5.9a3.5 3.5 0 0 0 4.4-4.6l-2.3 2.3-2-2z"/></svg>', action:'stage_delivery_action',  done:'stage_delivery_done', hint:'stage_delivery_hint'},
+  delivery: {label:'stage_delivery_label', dot:'#A34E28', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:1em;height:1em;display:inline-block;vertical-align:middle"><path d="M14.5 5.5a3.5 3.5 0 0 0-4.6 4.4L4 15.8V20h4.2l5.9-5.9a3.5 3.5 0 0 0 4.4-4.6l-2.3 2.3-2-2z"/></svg>', action:'stage_delivery_action',  done:'stage_delivery_done', hint:'stage_delivery_hint'},
   extend:   {label:'stage_extend_label',   dot:'#0EA5E9', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:1em;height:1em;display:inline-block;vertical-align:middle"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>', action:'stage_extend_action',           done:'stage_extend_done', hint:'stage_extend_hint'},
 };
 const DEFAULT_STAGE_ORDER = STAGES.slice();
@@ -1547,7 +1547,7 @@ function boot() {
     console.error('boot failed', err);
     const msg = (err && err.message ? String(err.message) : 'storage error').replace(/[<>]/g, '');
     document.body.insertAdjacentHTML('afterbegin',
-      '<div style="padding:24px;max-width:34rem;margin:0 auto;font:15px/1.5 system-ui;color:#1A2421">' +
+      '<div style="padding:24px;max-width:34rem;margin:0 auto;font:15px/1.5 system-ui;color:#29201A">' +
       '<b>Couldn’t start Sidekick.</b><br>' + msg +
       '<br><br>Close any other Sidekick tabs and reload.</div>');
   });

@@ -897,7 +897,7 @@
       <input type="file" accept="image/*" id="inv-slip-file" style="display:none">
       <div style="display:flex;gap:8px;margin-top:6px">
         <button type="button" id="inv-slip-attach" style="flex:1;padding:11px;border:1.5px dashed var(--border-mid);background:none;color:var(--text2);border-radius:var(--radius-sm);font-weight:700;font-family:inherit;font-size:13px;cursor:pointer">${esc(t('slip_attach_btn'))}</button>
-        ${inv.status !== 'paid' ? `<button type="button" id="inv-slip-confirm-paid" style="flex:1;padding:11px;border:none;background:var(--pine,#22554B);color:#fff;border-radius:var(--radius-sm);font-weight:800;font-family:inherit;font-size:13px;cursor:pointer">${esc(t('slip_confirm_paid_btn'))}</button>` : ''}
+        ${inv.status !== 'paid' ? `<button type="button" id="inv-slip-confirm-paid" style="flex:1;padding:11px;border:none;background:var(--brand);color:#fff;border-radius:var(--radius-sm);font-weight:800;font-family:inherit;font-size:13px;cursor:pointer">${esc(t('slip_confirm_paid_btn'))}</button>` : ''}
       </div>`;
   }
 
@@ -1056,7 +1056,7 @@
         if (href) {
           return `<div style="text-align:left;margin-bottom:${gap}">
               <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">${esc(c.label || channelTypeLabel(c.type))}</div>
-              <a href="${aesc(href)}" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;background:var(--pine,#22554B);color:#fff;font-weight:800;border-radius:12px;padding:12px;text-decoration:none">${esc(t('paylink_open_btn'))} · ${esc(money2(amount))}</a>
+              <a href="${aesc(href)}" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;background:var(--brand);color:#fff;font-weight:800;border-radius:12px;padding:12px;text-decoration:none">${esc(t('paylink_open_btn'))} · ${esc(money2(amount))}</a>
             </div>`;
         }
         // Invalid/unsafe URL → fall through to the plain-text card below.

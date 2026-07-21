@@ -5,7 +5,7 @@ import { GRIT_SESSION_COOKIE, verifySessionToken } from "@grit/passport";
 // session cookie and authenticates via HMAC signature inside the route
 // handler, so it is excluded from the session gate here. Cron routes are
 // likewise self-guarded (CRON_SECRET bearer token).
-const PUBLIC_API_PREFIXES = ["/api/auth/login", "/api/cron/", "/api/events/grit"];
+const PUBLIC_API_PREFIXES = ["/api/auth/login", "/api/auth/register", "/api/cron/", "/api/events/grit"];
 
 // /api/reports/cogs additionally accepts service-to-service bearer auth
 // (grit-reports' margin aggregator, GRIT_SERVICE_TOKEN) — when a bearer

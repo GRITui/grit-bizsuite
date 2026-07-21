@@ -1,20 +1,18 @@
 # grit-reports
 
-Static, no-build report constructor (vanilla JS + bundled SheetJS/Chart.js),
-served as static output on Vercel with a thin serverless `api/` layer for
-cross-app aggregation. Part of the Grit BizSuite monorepo — see the root
-[`AGENTS.md`](../../AGENTS.md) for the cross-app conventions this app
-follows (event contracts only, never direct cross-database queries).
+Static, no-build cross-app data visualization dashboard (vanilla JS +
+bundled Chart.js), served as static output on Vercel with a thin serverless
+`api/` layer for cross-app aggregation. Part of the Grit BizSuite monorepo —
+see the root [`AGENTS.md`](../../AGENTS.md) for the cross-app conventions
+this app follows (event contracts only, never direct cross-database
+queries).
 
 ## What's here
 
 ```
 excel-group-analyze/     the static app (served as the Vercel output directory)
-  index.html / app.js      Excel Group & Analyze — upload a spreadsheet, group,
-                            calculate, filter/sort, cross-tab, chart, export .xlsx
-  grit-dashboard.html/js   Grit BizSuite dashboard — cross-app margin & labor
-                            KPIs, backed by the api/ aggregator below
-  xlsx.full.min.js         bundled SheetJS (no npm dependency)
+  index.html / app.js      Grit BizSuite dashboard — cross-app margin & labor
+                            KPIs and charts, backed by the api/ aggregator below
   chart.umd.js             bundled Chart.js (no npm dependency)
 api/                      Vercel serverless functions (Node.js runtime, plain
                             ESM, no build step — see "Aggregator API" below)
@@ -22,28 +20,17 @@ lib/                      helpers shared by the api/ functions
 tests/                    pure-node test suite (`node tests/test-aggregate.mjs`)
 ```
 
-## Excel Group & Analyze
+## Grit BizSuite dashboard (`excel-group-analyze/index.html`)
 
-Client-only spreadsheet tool: upload an `.xlsx`/`.xls`/`.csv`, group rows by
-one or more key columns, sum/count/avg/min/max data columns, build SUMIF/
-COUNTIF-style conditional metrics, write formula-based calculated columns,
-label groups with rule-based categories, join a second lookup file, filter/
-sort/top-N the result, pivot into a cross-tab, chart it, and download the
-result as a formatted `.xlsx`. Presets save to `localStorage` (export/import
-as a file to move them between machines). See the in-app Help panel for the
-formula syntax and details. No server involved — everything runs in the
-browser against the bundled SheetJS/Chart.js.
-
-## Grit BizSuite dashboard (`grit-dashboard.html`)
-
-A second page, linked from the Excel Group & Analyze header, that calls the
-aggregator API below and renders:
+Calls the aggregator API below and renders:
 
 - KPI tiles: POS revenue, inventory COGS, gross margin (total + %),
   transaction count, average taskboard task-completion time, and a
   transactions-per-completed-task efficiency ratio.
-- A daily revenue bar chart (Chart.js, from the margins endpoint's `daily`
-  series).
+- A daily revenue bar chart with an overlaid margin trend line (Chart.js,
+  from the margins endpoint's `daily` series).
+- A revenue composition doughnut/pie chart — gross margin vs. inventory COGS
+  as a share of POS revenue for the selected period.
 - Per-upstream "not connected" chips (grit-pos / grit-inventory /
   grit-taskboard) driven by each response's `upstream` markers — so a
   not-yet-built or unreachable upstream endpoint reads as a chip, never a
@@ -52,8 +39,10 @@ aggregator API below and renders:
   signed in) or 403 (missing the `custom_reporting` addon), with copy
   explaining what's needed.
 - **Download CSV** — exports the loaded range's daily + summary metrics as a
-  `date,metric,value` CSV that can be dropped straight into
-  `index.html`'s Excel Group & Analyze (group by `metric`, sum `value`).
+  `date,metric,value` CSV for further analysis in any spreadsheet tool.
+
+Both charts re-render against the current light/dark `prefers-color-scheme`
+theme.
 
 Auth: paste a Grit Passport bearer token into the field at the top of the
 page, or leave it blank to rely on the `grit_passport` cookie already set by
@@ -176,7 +165,8 @@ update this mirror to match (same discipline as
 None of these are read at module load time in a way that throws; every
 missing var degrades a specific feature rather than breaking the app, so
 `grit-reports` keeps deploying and running standalone with zero env vars
-configured (Excel Group & Analyze needs none of them at all).
+configured (the dashboard's KPI tiles/charts just render zeroed data and
+"not connected" chips).
 
 ## Tests
 

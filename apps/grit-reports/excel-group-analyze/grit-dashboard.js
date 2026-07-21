@@ -133,7 +133,7 @@
         type: "bar",
         label: "Revenue",
         data: daily.map((d) => d.revenue),
-        backgroundColor: "#2d6cdf",
+        backgroundColor: "#bd5f31",
       },
     ];
     if (hasCogs) {
@@ -141,7 +141,7 @@
         type: "bar",
         label: "COGS",
         data: daily.map((d) => d.cogs),
-        backgroundColor: "#df4b4b",
+        backgroundColor: "#c94f4f",
       });
     }
     if (hasMargin) {
@@ -149,8 +149,8 @@
         type: "line",
         label: "Margin",
         data: daily.map((d) => d.margin),
-        borderColor: "#2ddf8a",
-        backgroundColor: "#2ddf8a",
+        borderColor: "#5c9d6e",
+        backgroundColor: "#5c9d6e",
         fill: false,
         tension: 0.25,
         yAxisID: "y",
@@ -165,10 +165,10 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: "#eee" } } },
+        plugins: { legend: { labels: { color: "#f5f1ea" } } },
         scales: {
-          x: { ticks: { color: "#aaa" }, grid: { color: "#333" } },
-          y: { ticks: { color: "#aaa" }, grid: { color: "#333" } },
+          x: { ticks: { color: "#b7a78f" }, grid: { color: "#3a3024" } },
+          y: { ticks: { color: "#b7a78f" }, grid: { color: "#3a3024" } },
         },
       },
     });

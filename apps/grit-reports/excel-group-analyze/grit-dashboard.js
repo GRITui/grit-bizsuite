@@ -156,6 +156,10 @@
         yAxisID: "y",
       });
     }
+    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const legendColor = isDark ? "#f5f1ea" : "#29201a";
+    const tickColor = isDark ? "#b7a78f" : "#93816a";
+    const gridColor = isDark ? "#3a3024" : "#e9e2d6";
     chart = new Chart(canvas.getContext("2d"), {
       type: "bar",
       data: {
@@ -165,10 +169,10 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: "#f5f1ea" } } },
+        plugins: { legend: { labels: { color: legendColor } } },
         scales: {
-          x: { ticks: { color: "#b7a78f" }, grid: { color: "#3a3024" } },
-          y: { ticks: { color: "#b7a78f" }, grid: { color: "#3a3024" } },
+          x: { ticks: { color: tickColor }, grid: { color: gridColor } },
+          y: { ticks: { color: tickColor }, grid: { color: gridColor } },
         },
       },
     });

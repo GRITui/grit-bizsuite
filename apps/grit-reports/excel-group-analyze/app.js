@@ -1687,8 +1687,9 @@ function renderCharts(rows, cols) {
   }
   if (labels.length === 0) return;
 
-  const textColor = '#b7a78f';
-  const gridColor = '#4a3d30';
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textColor = isDark ? '#b7a78f' : '#93816a';
+  const gridColor = isDark ? '#4a3d30' : '#e9e2d6';
   const unit = cfg.unit;
 
   let scales = {};
@@ -2457,13 +2458,14 @@ document.getElementById('helpBtn').addEventListener('click', () => {
 document.getElementById('downloadChartBtn').addEventListener('click', () => {
   if (!vizChartInstance) return;
   const a = document.createElement('a');
-  // Draw onto an opaque dark background so the PNG is readable outside the app
+  // Draw onto an opaque background (matching the current theme) so the PNG
+  // is readable outside the app — the live chart canvas itself is transparent.
   const src = vizCanvas;
   const copy = document.createElement('canvas');
   copy.width = src.width;
   copy.height = src.height;
   const ctx = copy.getContext('2d');
-  ctx.fillStyle = '#1a140f';
+  ctx.fillStyle = window.matchMedia('(prefers-color-scheme: dark)').matches ? '#1a140f' : '#faf8f5';
   ctx.fillRect(0, 0, copy.width, copy.height);
   ctx.drawImage(src, 0, 0);
   a.href = copy.toDataURL('image/png');

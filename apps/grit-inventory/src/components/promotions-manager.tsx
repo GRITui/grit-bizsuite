@@ -653,7 +653,7 @@ function PromotionForm({
         <button
           type="submit"
           disabled={busy}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+          className="rounded-md bg-accent-600 px-3 py-2 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:text-zinc-950"
         >
           {busy ? "Saving…" : initial ? "Save changes" : "Create promotion"}
         </button>
@@ -933,7 +933,7 @@ export function PromotionsManager({
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900"
+          className="rounded-md bg-accent-600 px-3 py-2 text-sm font-medium text-white hover:bg-accent-700 dark:bg-accent-500 dark:text-zinc-950"
         >
           + New promotion
         </button>

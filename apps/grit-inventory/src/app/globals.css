@@ -3,27 +3,64 @@
    classes are generated. */
 @source "../../../../packages/shared-ui/src";
 
+/*
+ * Grit BizSuite design tokens — "warm, approachable retail" direction.
+ * Same token system as grit-pos (see its app/globals.css): overriding
+ * Tailwind's built-in `zinc` scale means every existing
+ * `bg-zinc-*`/`text-zinc-*`/`border-zinc-*` class picks up the warm ramp
+ * with zero markup changes. `accent-*` is the terracotta brand color for
+ * primary actions and selected/active states.
+ */
+@theme {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+
+  --color-zinc-50: #faf8f5;
+  --color-zinc-100: #f5f1ea;
+  --color-zinc-200: #e9e2d6;
+  --color-zinc-300: #d8ccb8;
+  --color-zinc-400: #b7a78f;
+  --color-zinc-500: #93816a;
+  --color-zinc-600: #715f4c;
+  --color-zinc-700: #574838;
+  --color-zinc-800: #3b2f24;
+  --color-zinc-900: #29201a;
+  --color-zinc-950: #1a140f;
+
+  --color-accent-50: #fbeee7;
+  --color-accent-100: #f6dccb;
+  --color-accent-200: #edb897;
+  --color-accent-300: #e19468;
+  --color-accent-400: #d07542;
+  --color-accent-500: #bd5f31;
+  --color-accent-600: #a34e28;
+  --color-accent-700: #833e20;
+  --color-accent-800: #632f19;
+  --color-accent-900: #452113;
+
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf8f5;
+  --foreground: #29201a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1a140f;
+    --foreground: #f5f1ea;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }

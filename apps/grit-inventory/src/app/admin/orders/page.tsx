@@ -90,7 +90,7 @@ export default async function OrdersPage({
           <Link
             href={buildHref({ status: "", page: 1 })}
             className={`rounded-full px-3 py-1 ${
-              !status ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              !status ? "bg-accent-600 text-white dark:bg-accent-500 dark:text-zinc-950" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
             }`}
           >
             All
@@ -100,7 +100,7 @@ export default async function OrdersPage({
               key={s}
               href={buildHref({ status: s, page: 1 })}
               className={`rounded-full px-3 py-1 ${
-                status === s ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                status === s ? "bg-accent-600 text-white dark:bg-accent-500 dark:text-zinc-950" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
               }`}
             >
               {s.replace(/_/g, " ")}

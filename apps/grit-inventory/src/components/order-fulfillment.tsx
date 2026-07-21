@@ -71,7 +71,7 @@ function ScanBox({ onScan, disabled }: { onScan: (sku: string) => void; disabled
       <button
         type="submit"
         disabled={disabled}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+        className="rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:text-zinc-950"
       >
         Scan
       </button>
@@ -164,7 +164,7 @@ export function OrderFulfillment({
   }
 
   const buttonClass =
-    "rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900";
+    "rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:text-zinc-950";
 
   return (
     <div className="space-y-4">
@@ -248,7 +248,7 @@ export function OrderFulfillment({
           <Link
             href={`/admin/orders/${orderId}/label/${latestLabel.id}`}
             target="_blank"
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900"
+            className="rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 dark:bg-accent-500 dark:text-zinc-950"
           >
             Print label
           </Link>

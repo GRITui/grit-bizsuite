@@ -215,7 +215,7 @@ async function applyTenderOp(
   }
 
   if (outcome.isFullyPaid) {
-    const { vatAmount } = computeOrderVat(outcome.order.lines, outcome.order.tenant.vatRate);
+    const { vatAmount } = computeOrderVat(outcome.order.lines, outcome.order.tenant.vatRate, outcome.order.tenant.vatMode);
     completed.push({
       orderId: outcome.order.id,
       storeId: outcome.order.storeId,
@@ -315,7 +315,7 @@ async function applyQuickSaleOp(
     prisma.promotionRule.findMany({ where: { tenantId, isActive: true } }),
     prisma.tenant.findUniqueOrThrow({
       where: { id: tenantId },
-      select: { vatRate: true, discountStackingPolicy: true },
+      select: { vatRate: true, vatMode: true, discountStackingPolicy: true },
     }),
   ]);
   const { totalDiscount: quickSaleDiscount } = evaluatePromotions(
@@ -372,6 +372,7 @@ async function applyQuickSaleOp(
         variant: { vatApplicable: line.vatApplicable },
       })),
       tenant.vatRate,
+      tenant.vatMode,
     );
     completed.push({
       orderId: created.id,

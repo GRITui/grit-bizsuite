@@ -228,6 +228,13 @@ export async function POST(
         },
       })),
       metadata: { orderId, tenantId: resolved.id },
+      // Top-level Session metadata is NOT copied to the resulting
+      // PaymentIntent/Charge — only `payment_intent_data.metadata` is. The
+      // Stripe payout reconciliation cross-check (../../reconciliation/_lib/stripePayout.ts)
+      // scopes charges to a tenant by reading this same key off the Charge,
+      // since the platform shares one Stripe account/secret key across all
+      // tenants (no per-tenant Connect account yet).
+      payment_intent_data: { metadata: { orderId, tenantId: resolved.id } },
       success_url: `${origin}/pickup/${resolved.slug}/success?orderId=${orderId}`,
       cancel_url: `${origin}/pickup/${resolved.slug}?checkoutCancelled=1`,
     });

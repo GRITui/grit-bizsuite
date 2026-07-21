@@ -14,11 +14,9 @@ export interface ReconciliationDTO {
   createdAt: string;
 }
 
-export interface StripePayoutCheck {
-  available: false;
-  total: null;
-  note: string;
-}
+export type StripePayoutCheck =
+  | { available: true; total: number; note: string }
+  | { available: false; total: null; note: string };
 
 export interface ExpectedTotalsDTO {
   businessDate: string;

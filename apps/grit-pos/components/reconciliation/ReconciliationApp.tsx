@@ -144,12 +144,34 @@ export default function ReconciliationApp({
               </div>
             </dl>
 
-            <div className="rounded border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-              <p className="font-medium text-zinc-600 dark:text-zinc-300">
-                Stripe payout cross-check: unavailable
-              </p>
-              <p className="mt-1">{preview.stripePayout.note}</p>
-            </div>
+            {preview.stripePayout.available ? (
+              (() => {
+                const variance = preview.expected.stripe - preview.stripePayout.total;
+                const matches = Math.abs(variance) < 0.01;
+                return (
+                  <div
+                    className={`rounded border p-3 text-xs ${
+                      matches
+                        ? "border-emerald-300 text-emerald-800 dark:border-emerald-800 dark:text-emerald-300"
+                        : "border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-300"
+                    }`}
+                  >
+                    <p className="font-medium">
+                      Stripe payout cross-check: {formatMoney(preview.stripePayout.total)}
+                      {matches ? " — matches our records" : ` — variance ${formatMoney(variance)}`}
+                    </p>
+                    <p className="mt-1 opacity-80">{preview.stripePayout.note}</p>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="rounded border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                <p className="font-medium text-zinc-600 dark:text-zinc-300">
+                  Stripe payout cross-check: unavailable
+                </p>
+                <p className="mt-1">{preview.stripePayout.note}</p>
+              </div>
+            )}
 
             {alreadyClosed && preview.existingReconciliation ? (
               <div className="rounded bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">

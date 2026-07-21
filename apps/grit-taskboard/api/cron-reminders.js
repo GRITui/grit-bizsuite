@@ -4,14 +4,19 @@
  * freelancer's public booking page (app/book.html) and arrived via LINE
  * (client_line_user_id set) gets one automatic LINE push roughly a day
  * before their CONFIRMED appointment. Vercel Cron hits this endpoint once
- * an hour (vercel.json) — there is no per-booking scheduling, just a
- * recurring sweep for anything that has entered the 24h window and hasn't
- * been reminded yet.
+ * a day (vercel.json — Hobby plan caps crons at once daily, so this can't
+ * run hourly) — there is no per-booking scheduling, just a recurring sweep
+ * for anything that has entered the 24h window and hasn't been reminded
+ * yet. Because the sweep is daily and the window is 24h wide, no booking
+ * is ever skipped, but the reminder's timing is imprecise: depending on
+ * where the daily run lands relative to a given booking's start time, the
+ * push can arrive anywhere from a full day ahead to shortly before the
+ * appointment, not consistently ~24h out.
  *
  * Idempotency: `bookings.reminder_sent_at` (sql/schema-core.sql) is the
  * only source of truth. It is stamped ONLY after a push actually succeeds,
  * so a failed push (LINE API hiccup, bad token, etc.) just leaves the row
- * NULL for the next hourly run to retry — never a silent drop, never a
+ * NULL for the next daily run to retry — never a silent drop, never a
  * double-send. Bookings whose start time has already passed permanently
  * fall out of the query's `starts_at > now()` bound: this is deliberate,
  * not a bug — nobody should ever get a "reminder" for a meeting that's

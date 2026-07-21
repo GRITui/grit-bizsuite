@@ -53,10 +53,10 @@ export default async function PosLayout({ children }: { children: React.ReactNod
         </div>
         <nav className="flex shrink-0 items-center gap-4">
           {offlineEnabled && <OfflineStatusChip />}
-          <Link href="/reconciliation" className="text-sm text-zinc-500 underline dark:text-zinc-400">
+          <Link href="/reconciliation" className="text-sm text-zinc-500 hover:text-accent-600 dark:text-zinc-400 dark:hover:text-accent-400">
             Reconciliation
           </Link>
-          <Link href="/stores" className="text-sm text-zinc-500 underline dark:text-zinc-400">
+          <Link href="/stores" className="text-sm text-zinc-500 hover:text-accent-600 dark:text-zinc-400 dark:hover:text-accent-400">
             Locations
           </Link>
           <SignOutButton />

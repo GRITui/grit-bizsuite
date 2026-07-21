@@ -18,7 +18,7 @@ export default function SignOutButton() {
     <button
       onClick={handleSignOut}
       disabled={pending}
-      className="text-sm text-zinc-500 underline disabled:opacity-50 dark:text-zinc-400"
+      className="text-sm text-zinc-500 hover:text-accent-600 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-accent-400"
     >
       Sign out
     </button>

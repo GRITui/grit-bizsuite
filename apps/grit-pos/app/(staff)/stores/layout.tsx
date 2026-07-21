@@ -32,10 +32,10 @@ export default async function StoresLayout({
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{session.email}</p>
         </div>
         <nav className="flex items-center gap-4">
-          <Link href="/pos" className="text-sm text-zinc-500 underline dark:text-zinc-400">
+          <Link href="/pos" className="text-sm text-zinc-500 hover:text-accent-600 dark:text-zinc-400 dark:hover:text-accent-400">
             POS
           </Link>
-          <Link href="/reconciliation" className="text-sm text-zinc-500 underline dark:text-zinc-400">
+          <Link href="/reconciliation" className="text-sm text-zinc-500 hover:text-accent-600 dark:text-zinc-400 dark:hover:text-accent-400">
             Reconciliation
           </Link>
           <SignOutButton />

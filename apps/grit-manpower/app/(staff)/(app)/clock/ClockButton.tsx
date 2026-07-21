@@ -50,7 +50,7 @@ export default function ClockButton({ employeeId, isClockedIn }: ClockButtonProp
         className={
           isClockedIn
             ? "rounded-lg border border-zinc-300 px-6 py-4 text-base font-semibold text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-white"
-            : "rounded-lg bg-zinc-900 px-6 py-4 text-base font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
+            : "rounded-lg bg-accent-600 px-6 py-4 text-base font-semibold text-white hover:bg-accent-700 disabled:opacity-50 dark:bg-accent-500 dark:hover:bg-accent-400 dark:text-zinc-950"
         }
       >
         {submitting ? "Working…" : isClockedIn ? "Clock Out" : "Clock In"}

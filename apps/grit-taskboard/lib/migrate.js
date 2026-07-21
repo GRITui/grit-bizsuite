@@ -1,4 +1,4 @@
-/* Sidekick — lib/migrate.js
+/* Grit Taskboard — lib/migrate.js
  *
  * Applies sql/schema-core.sql (embedded verbatim in lib/schemaSql.js)
  * through the app's own DATABASE_URL — see api/admin-migrate.js for why
@@ -52,18 +52,12 @@ export function splitSqlStatements(sqlText) {
 // THIS database", not schema completeness (the idempotent SQL is the
 // authority on completeness).
 export const REQUIRED_TABLES = [
-  'users', 'clients', 'jobs', 'services', 'invoices', 'documents',
-  'app_bookings', 'followups', 'portfolio', 'research', 'packages',
-  'progress_logs', 'settings', 'line_channels', 'availability_slots',
-  'bookings', 'team_members', 'order_requests',
+  'users', 'team_members', 'ops_tasks', 'grit_org_links',
 ];
 export const REQUIRED_COLUMNS = [
   ['users', 'team_seats'],
-  ['users', 'line_sub'],
-  ['app_bookings', 'job_cuid'],
-  ['app_bookings', 'customer_cuid'],
-  ['jobs', 'client_cuid'],
-  ['invoices', 'client_cuid'],
+  ['ops_tasks', 'source_event_id'],
+  ['ops_tasks', 'triggered_by'],
 ];
 
 export async function schemaStatus(sql) {

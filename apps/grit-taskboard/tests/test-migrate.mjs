@@ -1,4 +1,4 @@
-// Sidekick — api/admin-migrate.js + lib/migrate.js: statement splitting
+// Grit Taskboard — api/admin-migrate.js + lib/migrate.js: statement splitting
 // ($$-block safety), token gating, status manifest, and the run loop.
 process.env.SETUP_TOKEN = 'test-setup-token';
 
@@ -11,14 +11,14 @@ const assert = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FA
 
 // ── Splitter ─────────────────────────────────────────────────────────────
 const stmts = splitSqlStatements(SCHEMA_SQL);
-assert(stmts.length > 40, `splitter yields a full statement set (got ${stmts.length})`);
+assert(stmts.length > 10, `splitter yields a full statement set (got ${stmts.length})`);
 assert(stmts.every(s => !s.startsWith('--')), 'no comment-only statements survive');
 const dollarStmts = stmts.filter(s => s.includes('$$'));
 assert(dollarStmts.length === 1, `exactly one dollar-quoted do-block (got ${dollarStmts.length})`);
 assert(dollarStmts[0].trimStart().startsWith('do $$') && dollarStmts[0].includes('end $$;'),
   'the do-block survives as ONE statement despite internal semicolons');
 assert(stmts.some(s => s.startsWith('create table if not exists team_members')), 'team_members create present');
-assert(stmts.some(s => s.includes('add column if not exists customer_cuid')), 'ref-cuid alter present');
+assert(stmts.some(s => s.includes('add column if not exists team_seats')), 'users alter present');
 // Every non-final statement ends with ; and none is empty
 assert(stmts.every(s => s.length > 5), 'no fragment statements');
 

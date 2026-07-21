@@ -25,7 +25,7 @@
  * afterward, plus per-statement errors if any.
  */
 import { db } from '../lib/db.js';
-import { constantTimeEqual } from '../lib/lineLogin.js';
+import { constantTimeEqual } from '../lib/auth.js';
 import { SCHEMA_SQL } from '../lib/schemaSql.js';
 import { splitSqlStatements, schemaStatus, runMigration } from '../lib/migrate.js';
 

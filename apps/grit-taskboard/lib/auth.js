@@ -10,11 +10,9 @@
  *   app.js), so storing this token alongside it fits the existing pattern.
  * - Not JWT: no need for a library or a standard claims shape here, this
  *   token only ever has to round-trip between this app's own client and
- *   its own API. Reuses the exact "base64url(JSON payload) + '.' +
- *   HMAC-SHA256 signature" technique lib/lineLogin.js already proved out
- *   for the OAuth `state` param (signState/verifyState) — same shape,
- *   longer max-age, different payload ({userCuid} instead of
- *   {nonce, returnTo}).
+ *   its own API. Uses a simple "base64url(JSON payload) + '.' +
+ *   HMAC-SHA256 signature" scheme, different payload ({userCuid} instead of
+ *   whatever else).
  *
  * Also holds the server-side half of password hashing: the exact same
  * PBKDF2-SHA256 scheme app.js's client-side hashPassword() uses (same
@@ -23,9 +21,15 @@
  * correctly here without ever having transmitted a plaintext password
  * during that migration step.
  */
-import { constantTimeEqual } from './lineLogin.js';
 
-export { constantTimeEqual };
+// Constant-time string comparison (avoids a timing side-channel on
+// signature/hash checks below).
+export function constantTimeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 function bytesToBase64Url(bytes) {
   let bin = '';

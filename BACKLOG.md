@@ -217,12 +217,16 @@ tenant-wide switch.
   this ever needs a real access-control decision, it should be a distinct
   "who can complete a pick/pack step" product call, not a copy-paste of
   the groups/locations/promotions ADMIN pattern.
-- **Reports' daily margin/COGS breakdown is null** — Inventory's COGS
-  endpoint only returns a period total, so the dashboard can't chart it per
-  day.
-- **Taskboard's persona onboarding has no "trading company" option** — the
-  live demo routed around it by picking "Other"; real trading-company
-  signups hit the same gap.
+- ~~**Reports' daily margin/COGS breakdown is null**~~ **Shipped.**
+  `/api/aggregate-margins` now returns a continuous per-day `cogs`/`margin`
+  series (grit-inventory's COGS endpoint added it), and the dashboard
+  renders it as a stacked COGS+margin daily bar chart with a margin %
+  trend line, falling back to plain revenue bars only when a range truly
+  has no per-day data.
+- ~~**Taskboard's persona onboarding has no "trading company" option**~~
+  **Moot.** Taskboard's entire freelancer persona (business-type
+  onboarding included) was removed — the app is now ops-kanban task
+  tracking only, with no persona concept left to have options for.
 
 ### POS ↔ Inventory SKU alignment (scoping)
 

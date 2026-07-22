@@ -44,12 +44,12 @@
       <summary class="section-title">Preferences</summary>
       <div class="settings-list">
         <div class="settings-row">
-          <label class="settings-label" for="set-theme">Theme</label>
-          <select id="set-theme" onchange="onThemeChange(this.value)">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="auto">Auto</option>
-          </select>
+          <span class="settings-label">Theme</span>
+          <div class="seg" id="set-theme" style="max-width:200px">
+            <button type="button" data-theme-opt="light" onclick="setThemeSeg('light')">Light</button>
+            <button type="button" data-theme-opt="dark" onclick="setThemeSeg('dark')">Dark</button>
+            <button type="button" data-theme-opt="auto" onclick="setThemeSeg('auto')">Auto</button>
+          </div>
         </div>
       </div>
     </details>
@@ -75,7 +75,7 @@
 </nav>
 
 <!-- ══ ACCOUNT NAME MODAL ══ -->
-<div class="modal-overlay" id="modal-account-name">
+<div class="modal-overlay" id="modal-account-name" onclick="if(event.target===this)closeAccountNameModal()">
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modal-handle"></div>
     <div class="modal-title">Edit your name</div>

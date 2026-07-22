@@ -186,13 +186,13 @@
           ${t.description ? `<div style="font-size:12px;color:var(--text3);margin-bottom:8px;line-height:1.4">${esc(t.description)}</div>` : ''}
           <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px">
             ${priorityChip}
-            ${triggeredLabel ? `<span style="font-size:11px;color:var(--text3);font-weight:700">${esc(triggeredLabel)}</span>` : ''}
+            ${triggeredLabel ? `<span class="chip" style="background:var(--marigold-tint);color:var(--marigold-ink)">${esc(triggeredLabel)}</span>` : ''}
             ${shiftLabel ? `<span style="font-size:11px;color:var(--text3)">🕒 ${shiftLabel}</span>` : ''}
           </div>
-          <div style="display:flex;gap:6px">
-            <button type="button" data-ops-back="${aesc(t.id)}" ${idx === 0 ? 'disabled' : ''} style="flex:1;padding:8px;border:1px solid var(--border);background:var(--card);color:${idx === 0 ? 'var(--text4)' : 'var(--text3)'};border-radius:var(--radius-sm);font-family:inherit;font-size:12px;font-weight:700;cursor:${idx === 0 ? 'default' : 'pointer'}">‹ Back</button>
-            <button type="button" data-ops-fwd="${aesc(t.id)}" ${idx === COLUMNS.length - 1 ? 'disabled' : ''} style="flex:1;padding:8px;border:none;background:${idx === COLUMNS.length - 1 ? 'var(--border)' : 'var(--brand)'};color:${idx === COLUMNS.length - 1 ? 'var(--text4)' : '#fff'};border-radius:var(--radius-sm);font-family:inherit;font-size:12px;font-weight:700;cursor:${idx === COLUMNS.length - 1 ? 'default' : 'pointer'}">${idx === COLUMNS.length - 1 ? 'Done ✓' : 'Advance ›'}</button>
-            <button type="button" data-ops-del="${aesc(t.id)}" aria-label="Delete" style="padding:8px 10px;border:1px solid var(--border);background:none;color:var(--text4);border-radius:var(--radius-sm);font-family:inherit;font-size:12px;cursor:pointer">✕</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button type="button" class="ops-act-back" data-ops-back="${aesc(t.id)}" ${idx === 0 ? 'disabled' : ''} aria-label="Back">‹</button>
+            <button type="button" class="ops-act-advance" data-ops-fwd="${aesc(t.id)}" ${idx === COLUMNS.length - 1 ? 'disabled' : ''}>${idx === COLUMNS.length - 1 ? 'Done ✓' : 'Advance ›'}</button>
+            <button type="button" class="ops-act-del" data-ops-del="${aesc(t.id)}" aria-label="Delete">✕</button>
           </div>
         </div>
       </div>`;
@@ -257,6 +257,10 @@
     document.body.appendChild(overlay);
     overlay.querySelector('#ops-save').addEventListener('click', saveNewTask);
     overlay.querySelector('#ops-cancel').addEventListener('click', () => closeModal('ops-form-modal'));
+    // Scrim tap closes too (handoff: "scrim tap or Cancel closes") — only
+    // when the click lands on the overlay itself, not bubbled up from
+    // inside .modal.
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal('ops-form-modal'); });
   }
 
   async function saveNewTask() {

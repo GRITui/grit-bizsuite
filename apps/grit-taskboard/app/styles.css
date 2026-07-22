@@ -606,6 +606,17 @@ select option{background:var(--select-option-bg);color:var(--select-option-fg);}
   .ops-col{flex:none;max-width:none;min-width:0;}
   .ops-col-cards{min-height:120px;}
 }
+/* Card action row: quiet 34x34 back/delete icon buttons flank the sole
+   flex:1 primary advance CTA — same three actions (Back/Advance/Delete),
+   just given the handoff's action-row hierarchy instead of ~equal-weight
+   inline-styled buttons. */
+.ops-act-back{flex:0 0 34px;width:34px;height:34px;padding:0;border:1px solid var(--border);background:var(--card);color:var(--text3);border-radius:var(--radius-sm);font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;}
+.ops-act-back:disabled{opacity:.35;cursor:default;}
+.ops-act-back:not(:disabled):hover{border-color:var(--brand);color:var(--brand);}
+.ops-act-advance{flex:1;min-height:44px;padding:9px 14px;border:none;border-radius:var(--radius-sm);background:var(--brand);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;}
+.ops-act-advance:disabled{background:var(--border);color:var(--text4);cursor:default;}
+.ops-act-del{flex:0 0 34px;width:34px;height:34px;padding:0;border:1px solid var(--border);background:none;color:var(--text4);border-radius:var(--radius-sm);font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;}
+.ops-act-del:hover{border-color:var(--overdue);color:var(--overdue);}
 
 /* ── Lost-deal exit + options list (2026-07-16) ─────────────────────────── */
 /* Completed-as-lost badge: same shape as .pl-done, danger-toned. */

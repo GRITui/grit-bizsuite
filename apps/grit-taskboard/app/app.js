@@ -266,6 +266,21 @@ async function onThemeChange(v) {
   localStorage.setItem(THEME_KEY, (v === 'dark' || v === 'auto') ? v : 'light');
   applyTheme();
 }
+// Segmented Light/Dark/Auto control (More > Preferences) calls this instead
+// of a <select> onchange; it just toggles which button carries `.on` and
+// then defers to the same onThemeChange(v) the rest of the app already uses.
+function setThemeSeg(v) {
+  onThemeChange(v);
+  syncThemeSeg();
+}
+function syncThemeSeg() {
+  const wrap = document.getElementById('set-theme');
+  if (!wrap) return;
+  const current = localStorage.getItem(THEME_KEY) || 'light';
+  wrap.querySelectorAll('[data-theme-opt]').forEach(btn => {
+    btn.classList.toggle('on', btn.getAttribute('data-theme-opt') === current);
+  });
+}
 
 // ─── BOOT ─────────────────────────────────────────────────────────────
 function showPostLoginToast() {
@@ -309,8 +324,7 @@ async function enterApp() {
   sAll.forEach(s => { if (s.key.startsWith(prefix)) settings[s.key.slice(prefix.length)] = s.value; });
 
   applyUser();
-  const set = (id, v) => { const el = document.getElementById(id); if (el != null && v != null) el.value = v; };
-  set('set-theme', localStorage.getItem(THEME_KEY) || 'light');
+  syncThemeSeg();
   const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   setTxt('app-version', APP_VERSION);
 

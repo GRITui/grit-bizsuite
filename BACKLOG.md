@@ -8,7 +8,24 @@ partial fix lands.
 
 ## P0 — real gaps worth closing next
 
-### Discount resolution policy (configurable per tenant)
+### ~~Discount resolution policy (configurable per tenant)~~ **Shipped.**
+`Tenant.discountStackingPolicy` (`NO_STACKING` default | `STACK_ALL`) and the
+pairwise `PromotionExclusion` join table both landed in grit-inventory
+(migration `20260719010022_discount_policy_and_exclusions`), synced to
+grit-pos via `discount_policy.updated` and `promotion.updated`'s
+`excluded_promotion_ids` (`packages/shared-events/src/contracts.ts`), cached
+on `PromotionRule.excludedRuleIds` + `Tenant.discountStackingPolicy` in
+grit-pos's own schema, and resolved in `apps/grit-pos/lib/promotions.ts`'s
+`evaluatePromotions` via `resolveStacking` (NO_STACKING) then
+`resolveExclusions`. The two open questions below were resolved during
+implementation: the `NO_STACKING` tiebreak went further than a simple
+per-line best-by-amount pick — same-SKU rules are transitively grouped via
+union-find so a multi-SKU rule can't partially win and still double-discount
+a SKU it shares with a loser, with ties broken by ascending rule id for
+determinism; exclusion stayed pairwise (not grouped) per the stated
+simplicity preference. Admin UI lives at `/admin/promotions` (stacking-policy
+panel + per-promotion exclusion multi-select). Original problem statement
+and design notes kept below for context.
 
 **Problem:** `evaluatePromotions` (`apps/grit-pos/lib/promotions.ts`) applies
 every matching rule with no conflict resolution — a cart can be discounted

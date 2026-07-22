@@ -7,29 +7,13 @@ const nextConfig: NextConfig = {
   // `@prisma/client` is already auto-externalized by Next.js by default,
   // but `ws`/`@neondatabase/serverless`/`@prisma/adapter-neon` are not.
   serverExternalPackages: ["ws", "@neondatabase/serverless", "@prisma/adapter-neon"],
-  // Grit packages ship TypeScript source (no build step) — transpile them.
-  transpilePackages: [
-    "@grit/database",
-    "@grit/passport",
-    "@grit/shared-events",
-    "@grit/shared-ui",
-  ],
-  // The @grit packages use ESM-style `./module.js` relative imports that
-  // resolve to `.ts` source (standard TS nodenext convention). Webpack maps
-  // the specifier extension via `extensionAlias` so those files are found.
-  //
-  // NOTE (bundler choice): Turbopack (the Next 16 default) has no
-  // extensionAlias equivalent and fails to resolve those `./*.js` -> `*.ts`
-  // imports inside the workspace packages, so this app builds and runs with
-  // webpack (`next build --webpack` / `next dev --webpack` in package.json).
-  // If the shared packages ever switch to extensionless relative imports (or
-  // ship per-package tsconfigs Turbopack can use), this can revert to
-  // Turbopack by dropping the flags.
-  experimental: {
-    extensionAlias: {
-      ".js": [".js", ".ts", ".tsx"],
-    },
-  },
+  // Grit packages now ship pre-compiled `dist/*.js` + `.d.ts` output (see
+  // packages/*/tsconfig.json + `build` script) instead of raw TypeScript
+  // source, so both webpack and Turbopack resolve real `.js` files on disk
+  // without needing TS-to-JS resolution help. `@grit/shared-ui` still ships
+  // JSX-authored source, but it's compiled down to plain `react-jsx` runtime
+  // calls ahead of time, so Next doesn't need to run its own JSX transform
+  // over it either — transpilePackages is no longer needed for any of them.
 };
 
 export default nextConfig;

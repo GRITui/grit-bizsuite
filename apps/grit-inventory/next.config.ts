@@ -7,27 +7,11 @@ const nextConfig: NextConfig = {
   // `@prisma/client` is already auto-externalized by Next.js by default,
   // but `ws`/`@neondatabase/serverless`/`@prisma/adapter-neon` are not.
   serverExternalPackages: ["ws", "@neondatabase/serverless", "@prisma/adapter-neon"],
-  // Grit workspace packages ship TypeScript source (no build step) and must
-  // be transpiled by Next.
-  transpilePackages: [
-    "@grit/passport",
-    "@grit/shared-events",
-    "@grit/database",
-    "@grit/shared-ui",
-  ],
-  // The @grit packages use TS-ESM style relative imports with ".js"
-  // extensions (e.g. `./bus.js` for bus.ts). Teach webpack to map those onto
-  // the TypeScript sources. This app builds with the webpack bundler
-  // (`next build --webpack` in package.json scripts) because Turbopack has no
-  // equivalent extension-alias setting yet.
-  webpack: (config) => {
-    config.resolve.extensionAlias = {
-      ".js": [".js", ".ts", ".tsx"],
-      ".mjs": [".mjs", ".mts"],
-      ".cjs": [".cjs", ".cts"],
-    };
-    return config;
-  },
+  // Grit workspace packages now ship pre-compiled `dist/*.js` + `.d.ts`
+  // output (see packages/*/tsconfig.json + `build` script) instead of raw
+  // TypeScript source, so both webpack and Turbopack resolve real `.js`
+  // files on disk directly — no transpilePackages or extensionAlias needed
+  // anymore.
 };
 
 export default nextConfig;

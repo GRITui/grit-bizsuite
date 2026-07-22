@@ -23,6 +23,10 @@ next-env.d.ts
 apps/grit-pos/app/generated/prisma
 apps/grit-inventory/src/generated/prisma
 
+# compiled output of packages/** (tsc build step; consuming apps import
+# these dist/ files, not src/ — see packages/*/tsconfig.json)
+packages/*/dist
+
 # misc
 .DS_Store
 *.pem

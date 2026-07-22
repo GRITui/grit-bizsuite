@@ -360,22 +360,25 @@ invent that channel, not just extend one that already exists.
 - No public storefront/checkout for Inventory, no real courier integration
   for Deliveries, no ML forecasting (still naive moving-average) — all
   called out as **explicitly out of scope**, do not schedule.
-- **Turbopack can't resolve the shared packages' specifiers — investigated,
-  turned out NOT to be a mechanical fix.** The original hypothesis
-  ("extensionless imports, add `.js`") was wrong: `packages/shared-ui` was
-  the only package actually missing extensions, and adding them (done) does
-  not fix Turbopack — a live `next build --turbopack` still fails with 22
-  "Module not found" errors, including on imports that were *already*
-  extension-explicit before this pass (e.g. `packages/passport/src/index.ts`).
-  Root cause: Turbopack has no equivalent of webpack's
-  `resolve.extensionAlias`, which is what lets `./foo.js` resolve to
-  `foo.ts` on disk — `apps/grit-pos/next.config.ts` already documents this
-  exact limitation inline. Closing this needs an actual architect decision
-  between three options, not another sweep: (a) ship `packages/**` as
-  pre-compiled `.js` output instead of TS source, (b) switch to genuinely
-  extensionless relative imports plus `turbopack.resolveExtensions` (at the
-  cost of breaking `packages/passport`'s Node-run test file, which currently
-  needs literal `.ts` specifiers under `--experimental-strip-types`), or (c)
-  keep both Next apps pinned to webpack indefinitely. No apps/** build
-  scripts were changed. **Open, needs a direction pick before any further
-  work.**
+- **Turbopack can't resolve the shared packages' specifiers — SHIPPED, option
+  (a) chosen (pre-compiled `.js` output).** Root cause was Turbopack having
+  no equivalent of webpack's `resolve.extensionAlias` (no way to map a
+  `./foo.js` specifier onto `foo.ts` on disk). Fix: every package under
+  `packages/**` (`shared-events`, `passport`, `database`, `shared-ui`) now
+  has a `tsconfig.json` + `build` script (`tsc -p tsconfig.json`) compiling
+  `src/**/*.ts(x)` to `dist/**/*.js` + `.d.ts`, wired into `turbo run build`
+  via the existing `dependsOn: ["^build"]` pipeline (topological order
+  confirmed via `turbo run build` logs). `main`/`types`/`exports` in each
+  package's `package.json` now point at `dist/`, not `src/`. `dist/` is
+  gitignored (`packages/*/dist`), built fresh via `turbo run build`.
+  `apps/grit-pos` and `apps/grit-inventory` had their `next.config.ts`
+  workarounds (the `extensionAlias`/webpack-`resolve.extensionAlias` hacks
+  and `transpilePackages` lists) removed, and their `dev`/`build` scripts
+  dropped the `--webpack` flag — both now build clean on Turbopack (the
+  Next 16 default) with zero "Module not found" errors, verified with a real
+  `next build --turbopack` (and `npm run build`) run for both apps; webpack
+  builds (`next build --webpack`) were re-verified to still pass so neither
+  app regressed. `packages/passport`'s Node test
+  (`node --experimental-strip-types --test test/*.test.mjs`) was left
+  running against `src/*.ts` directly (still passes, 15/15) since it already
+  worked and compiling didn't require touching it.

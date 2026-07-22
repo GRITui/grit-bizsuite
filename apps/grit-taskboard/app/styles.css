@@ -1,4 +1,4 @@
-/* Sidekick — styles.css  (version-lockstep with app.js APP_VERSION)
+/* Grit Taskboard — styles.css  (version-lockstep with app.js APP_VERSION)
    Mobile-first, big tap targets. Local-first PWA, no external assets. */
 @font-face{font-family:'Schibsted Grotesk';font-style:normal;font-weight:400 900;font-display:swap;
   src:url('fonts/schibsted-grotesk-variable.woff2') format('woff2-variations'),url('fonts/schibsted-grotesk-variable.woff2') format('woff2');}
@@ -7,7 +7,7 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
   /* Brand — warm retail direction (suite-wide terracotta), marigold kept as
-     Sidekick's own secondary/semantic accent (doubles as the "due" state). */
+     Grit Taskboard's own secondary/semantic accent (doubles as the "due" state). */
   --brand:#A34E28; --brand-bright:#D07542; --marigold:#C08A3E;
   /* Surfaces / ink — same warm cream-to-espresso ramp as the other 4 apps */
   --bg:#FAF8F5; --card:#FDFCFA; --border:#E9E2D6; --border-mid:#D8CCB8;
@@ -493,7 +493,7 @@ select option{background:var(--select-option-bg);color:var(--select-option-fg);}
   .nav{position:sticky;top:0;left:auto;transform:none;grid-column:1;grid-row:1;width:230px;max-width:none;
     height:100vh;flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px;padding:24px 14px;
     background:var(--card);backdrop-filter:none;border-top:none;border-right:0.5px solid var(--border);}
-  .nav::before{content:"Sidekick";font-size:19px;font-weight:800;color:var(--brand);letter-spacing:-.3px;padding:6px 12px 18px;}
+  .nav::before{content:"Grit Taskboard";font-size:19px;font-weight:800;color:var(--brand);letter-spacing:-.3px;padding:6px 12px 18px;}
   .nav-btn{flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:14px;padding:12px 14px;border-radius:10px;}
   .nav-btn span{font-size:14px;}
   .nav-btn.active{background:var(--brand-tint);}

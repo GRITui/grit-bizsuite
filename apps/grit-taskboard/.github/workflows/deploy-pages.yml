@@ -26,7 +26,7 @@ jobs:
       # This single Pages site hosts two builds of the app, built from two
       # branches on every run regardless of which one triggered it, so a push
       # to either branch can never wipe out the other's live pages:
-      #   /       <- main (Sidekick, the flagship app — formerly the general
+      #   /       <- main (Grit Taskboard, the flagship app — formerly the general
       #              multi-persona "Freelanz" app, retired and replaced when
       #              personal-gym-trainer-freelanz was promoted to main)
       #   /gym/   <- personal-gym-trainer-freelanz (kept as its own branch;

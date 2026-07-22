@@ -1,4 +1,5 @@
 # grit-reports
 
-Static, no-build report constructor (vanilla JS + bundled SheetJS/Chart.js).
-Served as static output; `api/` (if present) holds Vercel serverless functions.
+Static, no-build cross-app data visualization dashboard (vanilla JS + bundled
+Chart.js). Served as static output; `api/` (if present) holds Vercel
+serverless functions.

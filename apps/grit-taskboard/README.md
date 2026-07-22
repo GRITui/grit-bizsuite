@@ -1,11 +1,20 @@
 # Grit Taskboard (apps/grit-taskboard)
 
 No-build plain-JS PWA (`app/`) + Vercel serverless functions (`api/`) with a
-Neon Postgres backend (`lib/db.js`, `@neondatabase/serverless`). Formerly
-"Sidekick" — a freelancer/solo-operator admin app (clients, invoices, jobs,
-bookings, follow-ups, research library). This pass ("the Grit Taskboard
-pivot") layers an **operations kanban with cross-app event automation** on
-top, without touching any existing freelancer feature.
+Neon Postgres backend (`lib/db.js`, `@neondatabase/serverless`). An
+**operations kanban with cross-app event automation**: cards move through
+To do / In progress / Review / Done, and can be created automatically from
+other Grit BizSuite apps' events (a low-stock alert from grit-inventory, a
+POS sales surge from grit-pos).
+
+Formerly "Sidekick" — a freelancer/solo-operator admin app (clients,
+invoices, jobs, bookings, follow-ups, research library, LINE booking, team
+billing). That entire product surface has been removed; this app is now
+task tracking only. Some internal identifiers (`sidekick-v1` IndexedDB name,
+`sidekick_uid` localStorage keys, `window.SidekickBackend`) still carry the
+old name — left as-is since renaming them would silently log out or lose
+data for anyone with an existing local install; new code should not treat
+"Sidekick" as the product name anywhere user-visible.
 
 See the monorepo root `AGENTS.md` for how this app fits into Grit BizSuite
 and the cross-app event contract convention. This app is one of the apps
@@ -115,27 +124,23 @@ card's id with `201`→`200`).
 
 ### 4. Ops board UI (`app/opsboard.js`, wired into `app/index.html`/`app/app.js`)
 
-New screen (`#s-opsboard`, nav entry under More → More tools, next to
-Follow-ups/Portfolio/Research) — four columns (To do / In progress / Review
-/ Done). Cards show title, a priority badge (high priority visually
-distinct via the shared `.chip-overdue` token), a `triggered_by` indicator
-(📦 Inventory / 🧾 POS surge / blank for manual), and assigned shift.
-Tapping **Advance ›** moves a card forward one column; **‹ Back** regresses
-it (both ends disabled at the boundary columns). A **+ New task** button
-opens the create form (title, priority, assigned shift), following the same
-modal pattern `research.js`'s `buildFormModal` establishes.
+This is now the app's only screen (`#s-opsboard`) — four columns (To do /
+In progress / Review / Done). Cards show title, a priority badge (high
+priority visually distinct via the shared `.chip-overdue` token), a
+`triggered_by` indicator (📦 Inventory / 🧾 POS surge / blank for manual),
+and assigned shift. Tapping **Advance ›** moves a card forward one column;
+**‹ Back** regresses it (both ends disabled at the boundary columns). A
+**+ New task** button opens the create form (title, priority, assigned
+shift). `app/app.js` is otherwise just the shell: local-account auth
+(register/login/guest), theme, and a `more` screen (account name, theme,
+log out) — see that file's header for the full list of what it dropped
+along with the freelancer persona.
 
 **Data layer.** Local-first IndexedDB store `'opsTasks'` (`app/app.js`
-`openDB()`, `DB_VER` 7→8): `keyPath: 'id'` with **no** `autoIncrement`,
-unlike every other store in this app — `id` here *is* the stable cuid
-identity on both the client and server (mirroring `ops_tasks.id` 1:1),
-rather than pairing a local autoincrement id with a separate `cuid` field.
-Registered in `BACKUP_STORES`/`IMPORT_ORDER` (included in
-export/restore/guest-adoption), with one small special case in
-`importDataset()`: an `opsTasks` row is restored via `put()` with its `id`
-preserved verbatim rather than `add()`-with-remap, since (unlike every
-other store) nothing else references an ops task by id, so there's no
-cross-reference to remap and the id is globally stable already.
+`openDB()`): `keyPath: 'id'` with **no** `autoIncrement`, unlike the
+`users` store — `id` here *is* the stable cuid identity on both the client
+and server (mirroring `ops_tasks.id` 1:1), rather than pairing a local
+autoincrement id with a separate `cuid` field.
 
 **Sync choice (documented per the task spec's either/or).** `opsboard.js`
 reuses `window.SidekickBackend` (extended in `app/dataClient.js` with
@@ -230,9 +235,9 @@ See `.env.example` for the full annotated list; new for this pass:
 | `GET/PUT/DELETE /api/grit-org-link` | Bearer session | This account's `grit_org_links` row |
 | `GET/POST/PUT/DELETE /api/ops-tasks` | Bearer session (GET also accepts `GRIT_SERVICE_TOKEN` + `?organization_id=`) | Ops kanban CRUD |
 
-## Everything else
+## History
 
-Unchanged — see `project-changelog-handshake-gym.md` for the full history of
-the freelancer-app build (clients/jobs/invoices/documents/bookings/
-follow-ups/portfolio/research/team/billing/LINE integration) this pivot
-builds alongside.
+See `project-changelog-handshake-gym.md` for the history of the freelancer
+app (clients/jobs/invoices/documents/bookings/follow-ups/portfolio/research/
+team billing/LINE integration) that this app used to be before that whole
+surface was removed in favor of task tracking only.

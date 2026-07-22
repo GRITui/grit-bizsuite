@@ -5,6 +5,7 @@ import { businessDayRange, formatBusinessDate, parseBusinessDate } from "../_lib
 import { getStripePayoutTotal } from "../_lib/stripePayout";
 import {
   computeExpectedTotals,
+  computeVatLiabilityTotal,
   findReconciliationForDate,
   serializeReconciliation,
 } from "../_lib/queries";
@@ -29,8 +30,9 @@ export async function GET(request: Request) {
     }
 
     const { start, end } = businessDayRange(businessDate);
-    const [expected, stripePayout, existing] = await Promise.all([
+    const [expected, vatLiabilityTotal, stripePayout, existing] = await Promise.all([
       computeExpectedTotals(tenantId, start, end),
+      computeVatLiabilityTotal(tenantId, start, end),
       getStripePayoutTotal(tenantId, businessDate),
       findReconciliationForDate(tenantId, businessDate),
     ]);
@@ -42,6 +44,7 @@ export async function GET(request: Request) {
         card: Number(expected.card),
         qrPay: Number(expected.qrPay),
         stripe: Number(expected.stripe),
+        vatLiability: Number(vatLiabilityTotal),
       },
       stripePayout,
       alreadyClosed: existing !== null,

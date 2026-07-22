@@ -2,7 +2,8 @@ import "server-only";
 
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
+import { OrderStatus, PaymentStatus, TenderType } from "@/app/generated/prisma/enums";
+import { computeOrderVat } from "@/app/api/orders/_lib/queries";
 import { formatBusinessDate } from "./dates";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,43 @@ export async function computeExpectedTotals(
   return totals;
 }
 
+/**
+ * Sums `computeOrderVat`'s `vatAmount` (app/api/orders/_lib/queries.ts)
+ * across every Order that was closed (fully paid) for this tenant with
+ * `updatedAt` in [start, end) — the same business-date window
+ * `computeExpectedTotals` sums Payments over, just at order granularity
+ * since VAT is derived per order, not per payment. `updatedAt` is the same
+ * "when this order finished" signal the tender/offline-sync/Stripe-webhook
+ * routes rely on implicitly (status flips to `closed` in the same write
+ * that sets it), so this lines up with what `transaction.completed`
+ * already reported as `tax_amount` for those orders — this just aggregates
+ * it per business date instead of re-deriving anything new.
+ */
+export async function computeVatLiabilityTotal(
+  tenantId: string,
+  start: Date,
+  end: Date,
+): Promise<Prisma.Decimal> {
+  const orders = await prisma.order.findMany({
+    where: {
+      tenantId,
+      status: OrderStatus.closed,
+      updatedAt: { gte: start, lt: end },
+    },
+    include: {
+      tenant: { select: { vatRate: true, vatMode: true } },
+      lines: { select: { lineTotal: true, variant: { select: { vatApplicable: true } } } },
+    },
+  });
+
+  let total = new Prisma.Decimal(0);
+  for (const order of orders) {
+    const { vatAmount } = computeOrderVat(order.lines, order.tenant.vatRate, order.tenant.vatMode);
+    total = total.plus(vatAmount);
+  }
+  return total.toDecimalPlaces(2);
+}
+
 const reconciliationInclude = {
   closedByUser: { select: { email: true } },
 } as const satisfies Prisma.DailyReconciliationInclude;
@@ -109,6 +147,8 @@ export interface ReconciliationDTO {
   cardTotal: number;
   qrPayTotal: number;
   stripeTotal: number;
+  /** VAT liability for this business date (see DailyReconciliation.vatLiabilityTotal doc comment) — snapshotted at close time, not recomputed on read. */
+  vatLiabilityTotal: number;
   notes: string | null;
   closedByUserId: string;
   closedByEmail: string;
@@ -129,6 +169,7 @@ export function serializeReconciliation(rec: DailyReconciliationWithUser): Recon
     cardTotal: Number(rec.cardTotal),
     qrPayTotal: Number(rec.qrPayTotal),
     stripeTotal: Number(rec.stripeTotal),
+    vatLiabilityTotal: Number(rec.vatLiabilityTotal),
     notes: rec.notes,
     closedByUserId: rec.closedByUserId,
     closedByEmail: rec.closedByUser.email,

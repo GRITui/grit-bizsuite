@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "cd ../.. && npm install",
-  "buildCommand": "npx prisma migrate deploy && cd ../.. && npm run build --workspace=invento",
+  "buildCommand": "npx prisma migrate deploy && cd ../.. && npx turbo run build --filter=invento",
   "outputDirectory": ".next",
   "crons": [
     { "path": "/api/cron/restock-alert", "schedule": "0 8 * * *" },

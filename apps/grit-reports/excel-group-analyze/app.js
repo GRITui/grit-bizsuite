@@ -122,45 +122,93 @@
     }
     const daily = Array.isArray(marginsBody.daily) ? marginsBody.daily : [];
     if (typeof Chart === "undefined" || daily.length === 0) return;
-    // Revenue/COGS as grouped bars, margin as an overlaid trend line — the
-    // /api/aggregate-margins `daily[].cogs`/`margin` series is only
-    // non-null when the grit-inventory upstream call succeeded (see
-    // aggregate-margins.js), so those two datasets are omitted rather than
-    // drawn as a flat zero line when it didn't.
+    // The /api/aggregate-margins `daily[].cogs`/`margin` series is only
+    // non-null when the grit-inventory upstream call succeeded AND returned
+    // per-day data (see aggregate-margins.js) — when it hasn't, this falls
+    // back to a plain revenue-only bar rather than drawing a faked stack.
     const hasCogs = daily.some((d) => d.cogs !== null && d.cogs !== undefined);
     const hasMargin = daily.some((d) => d.margin !== null && d.margin !== undefined);
-    const datasets = [
-      {
-        type: "bar",
-        label: "Revenue",
-        data: daily.map((d) => d.revenue),
-        backgroundColor: "#bd5f31",
-      },
-    ];
-    if (hasCogs) {
-      datasets.push({
-        type: "bar",
-        label: "COGS",
-        data: daily.map((d) => d.cogs),
-        backgroundColor: "#c94f4f",
-      });
-    }
-    if (hasMargin) {
-      datasets.push({
-        type: "line",
-        label: "Margin",
-        data: daily.map((d) => d.margin),
-        borderColor: "#5c9d6e",
-        backgroundColor: "#5c9d6e",
-        fill: false,
-        tension: 0.25,
-        yAxisID: "y",
-      });
-    }
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const legendColor = isDark ? "#f5f1ea" : "#29201a";
     const tickColor = isDark ? "#b7a78f" : "#93816a";
     const gridColor = isDark ? "#3a3024" : "#e9e2d6";
+
+    let datasets;
+    let scales;
+    if (hasCogs && hasMargin) {
+      // Composition trend: COGS + margin STACK to reconstruct each day's
+      // revenue bar (revenue = cogs + margin by construction), so the split
+      // is readable at a glance instead of needing three separate series —
+      // COGS on the bottom (the "cost floor"), margin stacked on top of it.
+      // A dashed margin-% line on a secondary axis adds the trend insight a
+      // stacked bar alone can't show: whether the split is *improving* day
+      // over day, independent of how big the bar itself is.
+      datasets = [
+        {
+          type: "bar",
+          label: "COGS",
+          data: daily.map((d) => d.cogs),
+          backgroundColor: "#c94f4f",
+          stack: "revenue",
+          yAxisID: "y",
+        },
+        {
+          type: "bar",
+          label: "Gross margin",
+          data: daily.map((d) => d.margin),
+          backgroundColor: "#5c9d6e",
+          stack: "revenue",
+          yAxisID: "y",
+        },
+        {
+          type: "line",
+          label: "Margin %",
+          data: daily.map((d) =>
+            d.margin !== null && d.margin !== undefined && d.revenue
+              ? Number(((d.margin / d.revenue) * 100).toFixed(1))
+              : null,
+          ),
+          borderColor: "#bd5f31",
+          backgroundColor: "#bd5f31",
+          borderDash: [5, 3],
+          pointRadius: 3,
+          fill: false,
+          tension: 0.25,
+          yAxisID: "y1",
+        },
+      ];
+      scales = {
+        x: { stacked: true, ticks: { color: tickColor }, grid: { color: gridColor } },
+        y: {
+          stacked: true,
+          ticks: { color: tickColor },
+          grid: { color: gridColor },
+          title: { display: true, text: "Revenue ($)", color: tickColor },
+        },
+        y1: {
+          position: "right",
+          ticks: { color: tickColor, callback: (v) => v + "%" },
+          grid: { display: false },
+          title: { display: true, text: "Margin %", color: tickColor },
+        },
+      };
+    } else {
+      // No per-day COGS/margin from the upstream this range — plain revenue
+      // bars rather than a stack with nothing to stack.
+      datasets = [
+        {
+          type: "bar",
+          label: "Revenue",
+          data: daily.map((d) => d.revenue),
+          backgroundColor: "#bd5f31",
+        },
+      ];
+      scales = {
+        x: { ticks: { color: tickColor }, grid: { color: gridColor } },
+        y: { ticks: { color: tickColor }, grid: { color: gridColor } },
+      };
+    }
+
     chart = new Chart(canvas.getContext("2d"), {
       type: "bar",
       data: {
@@ -171,10 +219,7 @@
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { labels: { color: legendColor } } },
-        scales: {
-          x: { ticks: { color: tickColor }, grid: { color: gridColor } },
-          y: { ticks: { color: tickColor }, grid: { color: gridColor } },
-        },
+        scales,
       },
     });
   }

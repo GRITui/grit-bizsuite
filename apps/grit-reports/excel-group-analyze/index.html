@@ -214,7 +214,7 @@
       <div id="kpiBar"></div>
 
       <div class="box" id="chartArea">
-        <h2>Daily revenue <small>&mdash; per-day COGS/margin aren't available from the inventory COGS endpoint (period totals only), so the bars show revenue</small></h2>
+        <h2>Daily revenue composition <small>&mdash; COGS + gross margin stacked to each day's revenue, with the margin % trend line (right axis); falls back to plain revenue bars for a range where the inventory COGS upstream has no per-day data</small></h2>
         <div id="chartCanvasWrap"><canvas id="dashCanvas"></canvas></div>
       </div>
 

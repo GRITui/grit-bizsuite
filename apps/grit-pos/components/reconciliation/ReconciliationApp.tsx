@@ -142,6 +142,10 @@ export default function ReconciliationApp({
                 <dt className="text-zinc-500 dark:text-zinc-400">Stripe</dt>
                 <dd className="font-semibold tabular-nums">{formatMoney(preview.expected.stripe)}</dd>
               </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">VAT liability</dt>
+                <dd className="font-semibold tabular-nums">{formatMoney(preview.expected.vatLiability)}</dd>
+              </div>
             </dl>
 
             {preview.stripePayout.available ? (
@@ -259,6 +263,7 @@ export default function ReconciliationApp({
                   <th className="px-3 py-2">Card</th>
                   <th className="px-3 py-2">QR pay</th>
                   <th className="px-3 py-2">Stripe</th>
+                  <th className="px-3 py-2">VAT liability</th>
                   <th className="px-3 py-2">Closed by</th>
                 </tr>
               </thead>
@@ -284,6 +289,7 @@ export default function ReconciliationApp({
                     <td className="px-3 py-2 tabular-nums">{formatMoney(rec.cardTotal)}</td>
                     <td className="px-3 py-2 tabular-nums">{formatMoney(rec.qrPayTotal)}</td>
                     <td className="px-3 py-2 tabular-nums">{formatMoney(rec.stripeTotal)}</td>
+                    <td className="px-3 py-2 tabular-nums">{formatMoney(rec.vatLiabilityTotal)}</td>
                     <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">{rec.closedByEmail}</td>
                   </tr>
                 ))}

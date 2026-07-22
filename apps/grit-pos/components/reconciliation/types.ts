@@ -8,6 +8,7 @@ export interface ReconciliationDTO {
   cardTotal: number;
   qrPayTotal: number;
   stripeTotal: number;
+  vatLiabilityTotal: number;
   notes: string | null;
   closedByUserId: string;
   closedByEmail: string;
@@ -25,6 +26,7 @@ export interface ExpectedTotalsDTO {
     card: number;
     qrPay: number;
     stripe: number;
+    vatLiability: number;
   };
   stripePayout: StripePayoutCheck;
   alreadyClosed: boolean;

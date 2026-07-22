@@ -474,6 +474,14 @@ model DailyReconciliation {
   cardTotal         Decimal  @db.Decimal(10, 2)
   qrPayTotal        Decimal  @db.Decimal(10, 2)
   stripeTotal       Decimal  @db.Decimal(10, 2)
+  /// Sum of `computeOrderVat`'s `vatAmount` (app/api/orders/_lib/queries.ts)
+  /// across every Order closed on this business date — the VAT liability to
+  /// report/remit for the day, alongside the tender totals above. Derived
+  /// the same way `transaction.completed`'s `tax_amount` is (lib/events.ts),
+  /// just aggregated per business date instead of per order; snapshotted
+  /// here (not recomputed later) so a closed reconciliation stays a fixed
+  /// historical record even if a tenant's `vatRate` changes afterward.
+  vatLiabilityTotal Decimal  @db.Decimal(10, 2) @default(0)
   notes             String?
   closedByUserId    String
   createdAt         DateTime @default(now())

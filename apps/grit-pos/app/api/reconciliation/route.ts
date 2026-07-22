@@ -7,6 +7,7 @@ import { businessDayRange, formatBusinessDate, parseBusinessDate } from "./_lib/
 import { parseMoneyInput } from "./_lib/money";
 import {
   computeExpectedTotals,
+  computeVatLiabilityTotal,
   findReconciliationForDate,
   listReconciliationsForTenant,
   serializeReconciliation,
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
 
     const { start, end } = businessDayRange(businessDate);
     const expected = await computeExpectedTotals(tenantId, start, end);
+    const vatLiabilityTotal = await computeVatLiabilityTotal(tenantId, start, end);
 
     const created = await prisma.dailyReconciliation.create({
       data: {
@@ -89,6 +91,7 @@ export async function POST(request: Request) {
         cardTotal: expected.card,
         qrPayTotal: expected.qrPay,
         stripeTotal: expected.stripe,
+        vatLiabilityTotal,
         notes,
         closedByUserId: session.userId,
       },

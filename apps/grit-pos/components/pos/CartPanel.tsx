@@ -28,6 +28,7 @@ export default function CartPanel({
         <ul className="flex flex-col gap-3">
           {order.lines.map((line) => {
             const busy = busyLineId === line.id;
+            const editableLine = editable && !line.pending;
             return (
               <li
                 key={line.id}
@@ -46,13 +47,18 @@ export default function CartPanel({
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {formatMoney(line.unitPrice)} each
                   </p>
+                  {line.pending && (
+                    <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                      Queued — will sync when back online
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-col items-end gap-2">
                   <span className="text-sm font-semibold tabular-nums">
                     {formatMoney(line.lineTotal)}
                   </span>
-                  {editable ? (
+                  {editableLine ? (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"

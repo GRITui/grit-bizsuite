@@ -319,6 +319,11 @@ model OrderLine {
   unitPrice  Decimal @db.Decimal(10, 2)
   /// quantity * unitPrice + sum(selected add-on prices) * quantity
   lineTotal  Decimal @db.Decimal(10, 2)
+  /// Client-generated idempotency key for offline-captured "add_line" ops
+  /// (offline queue sync). Unique when present so a retried sync can never
+  /// double-add a line — mirrors Payment.externalRef's role for offline
+  /// tenders/quick sales.
+  externalRef String? @unique @db.VarChar(100)
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product  @relation(fields: [productId], references: [id], onDelete: Restrict)

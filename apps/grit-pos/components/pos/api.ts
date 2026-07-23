@@ -46,14 +46,43 @@ export function cancelOrder(orderId: string): Promise<{ order: OrderDTO | null }
   });
 }
 
-export function addOrderLine(
+export type AddLineResult =
+  | { queued: false; order: OrderDTO }
+  | { queued: true; externalRef: string };
+
+/**
+ * Adds a line to an existing open order. When the network is down and
+ * offline mode is allowed (`pos.offline_mode` entitlement, passed in by the
+ * caller), the line is captured into the IndexedDB queue instead and
+ * replayed later via POST /api/orders/offline-sync — the result then
+ * carries `queued: true`. Mirrors tenderOrder's queueOffline pattern exactly.
+ */
+export async function addOrderLine(
   orderId: string,
   input: { productId: string; variantId: string | null; addOnIds: string[]; quantity: number },
-): Promise<{ order: OrderDTO }> {
-  return request(`/api/orders/${orderId}/lines`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  options: { queueOffline?: boolean } = {},
+): Promise<AddLineResult> {
+  try {
+    const data = await request<{ order: OrderDTO }>(`/api/orders/${orderId}/lines`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return { queued: false, ...data };
+  } catch (err) {
+    if (!options.queueOffline || !isNetworkError(err)) throw err;
+    const externalRef = newExternalRef();
+    await enqueueOp({
+      kind: "add_line",
+      externalRef,
+      orderId,
+      productId: input.productId,
+      variantId: input.variantId,
+      addOnIds: input.addOnIds,
+      quantity: input.quantity,
+      queuedAt: new Date().toISOString(),
+    });
+    return { queued: true, externalRef };
+  }
 }
 
 export function updateOrderLineQuantity(

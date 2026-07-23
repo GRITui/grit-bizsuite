@@ -245,6 +245,43 @@ tenant-wide switch.
   onboarding included) was removed — the app is now ops-kanban task
   tracking only, with no persona concept left to have options for.
 
+### Suite-wide app switcher UX/UI (scoping)
+
+**Problem:** there's no real way for a user to move between the five apps
+today. `packages/shared-ui/src/AppSwitcher.tsx` (built from
+`packages/passport/src/nav.ts`'s `buildAppNav`/`APP_KEYS`) is a real,
+working component — locked/ungated apps render greyed-out with a lock icon
+— but it's only actually rendered in two places:
+`apps/grit-pos/app/(staff)/pos/layout.tsx` and
+`apps/grit-inventory/src/app/admin/layout.tsx`. `grit-taskboard` and
+`grit-reports` have no switcher UI and no cross-app links anywhere in their
+HTML/JS. `APP_KEYS` doesn't include `manpower` at all, consistent with its
+deliberate standalone status (see AGENTS.md).
+
+Even where the switcher is rendered, it can't do much yet: each app is
+deployed to its own separate Vercel subdomain
+(`grit-bizsuite.vercel.app`, `grit-inventory-grit-project.vercel.app`,
+etc.), and the shared `grit_passport` cookie (`@grit/passport`'s
+`session.ts`) is set host-only — no `Domain=` attribute, no shared parent
+domain in any `vercel.json`. So clicking a switcher link today logs a
+user back into whichever app they land on rather than carrying their
+session across, exactly the "hasn't been verified live" gap already noted
+above under "Full SSO is still a bridge, not real."
+
+**Scope for a future task:**
+- Add `AppSwitcher` to `grit-taskboard` and `grit-reports`'s nav (blocked
+  on both apps actually consuming `@grit/passport` for auth first — reports
+  already does; taskboard is explicitly excluded from SSO per the entry
+  above, so its switcher entry would need to point at a plain login-required
+  link rather than assuming a shared session, until/unless taskboard's own
+  SSO design pass happens).
+- Decide + implement a shared parent domain for production deploys so the
+  `grit_passport` cookie can carry a `Domain=` attribute and actually work
+  cross-app (infra decision, not just code — needs owner sign-off on
+  domain/subdomain strategy).
+- Decide whether `grit-manpower` ever gets a switcher entry at all, given
+  it's explicitly out of the shared session model for now.
+
 ### POS ↔ Inventory SKU alignment (scoping)
 
 **Problem:** `eventItemSku` (`apps/grit-pos/lib/events.ts:86-88`) resolves an

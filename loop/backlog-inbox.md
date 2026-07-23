@@ -66,3 +66,49 @@ through triage, sprint planning, and execution.
     signs off on the recommendation and answers those questions.
   </researcher_notes>
 </task_item>
+
+<task_item>
+  <id>TSK-002</id>
+  <source>OWNER_POPUP</source>
+  <status>READY_FOR_PM</status>
+  <priority>MEDIUM</priority>
+  <title>Suite-wide app switcher UX/UI</title>
+  <description>
+    Owner asked how a user switches between the 5 apps; assessment found a
+    real AppSwitcher component (packages/shared-ui/src/AppSwitcher.tsx,
+    fed by packages/passport/src/nav.ts's buildAppNav/APP_KEYS) that is
+    only actually rendered in apps/grit-pos's staff layout and
+    apps/grit-inventory's admin layout. grit-taskboard and grit-reports
+    have no switcher UI or cross-app links at all; APP_KEYS doesn't
+    include manpower (deliberate, per AGENTS.md).
+
+    Even where rendered, the switcher can't carry a session across apps
+    today: each app deploys to its own separate Vercel subdomain and the
+    shared grit_passport cookie (@grit/passport's session.ts) is host-only
+    (no Domain= attribute, no shared parent domain in any vercel.json).
+    See BACKLOG.md's "Suite-wide app switcher UX/UI (scoping)" section
+    (under P1) for full detail and the "Full SSO is still a bridge, not
+    real" entry it links back to.
+
+    Scope for a build task (once triaged):
+    - Add AppSwitcher to grit-taskboard and grit-reports's nav (reports
+      already consumes @grit/passport; taskboard is explicitly excluded
+      from SSO per BACKLOG.md, so needs a plain login-required link
+      there instead of assuming a shared session until/unless taskboard
+      gets its own SSO design pass).
+    - Shared parent domain for production deploys so grit_passport's
+      Domain= attribute can actually work cross-app — this is an infra/
+      deployment decision needing explicit owner sign-off on domain
+      strategy, not just a code change.
+    - Open question for the owner: does grit-manpower ever get a
+      switcher entry, given it's deliberately outside the shared session
+      model for now?
+
+    This is UX/UI + light infra scoping, not a design-doc-only task like
+    TSK-001 — Researcher-Squad should triage feasibility/sizing, then
+    hand off to UX-UI-Designer-Squad for the switcher UI additions and
+    flag the domain-strategy question back to the owner before any
+    infra change is made.
+  </description>
+  <researcher_notes></researcher_notes>
+</task_item>

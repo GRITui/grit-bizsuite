@@ -165,10 +165,28 @@
     }
 
     #resultArea { display: none; }
+
+    /* Suite nav — plain link row to the other Grit BizSuite apps. This app
+       has no client-side entitlement data (the JWT is only ever verified
+       server-side, in the aggregator API), so entries link out ungated
+       rather than trying to fake the AppSwitcher lock treatment. */
+    #suiteNav { margin: 0 0 16px 0; }
+    #suiteNav ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; }
+    #suiteNav a {
+      display: inline-flex; align-items: center; white-space: nowrap;
+      padding: 6px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+      text-decoration: none; color: var(--ink-dim);
+      border: 1px solid var(--border); background: var(--panel);
+    }
+    #suiteNav a:hover { background: var(--border-soft); color: var(--ink); }
   </style>
 </head>
 <body>
   <main>
+    <nav id="suiteNav" aria-label="Grit BizSuite apps">
+      <ul id="suiteNavList"></ul>
+    </nav>
+
     <h1>Grit BizSuite Dashboard</h1>
     <p class="subtitle">
       Cross-app data visualization dashboard &mdash; pulls POS revenue, inventory FIFO COGS,

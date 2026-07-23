@@ -392,12 +392,49 @@
     }
   }
 
+  // Suite nav — plain, ungated links to the other three Grit BizSuite apps.
+  // Unlike the Next.js apps' AppSwitcher (packages/shared-ui/src/AppSwitcher.tsx),
+  // this page has no client-side session: the `grit_passport` JWT is only ever
+  // verified server-side inside the aggregator API (lib/passportVerify.js),
+  // never decoded here, so there's no `enabled`/tier data available in the
+  // browser to gate entries on the way AppSwitcher's lock treatment does.
+  // Every entry links out plainly. Defaults mirror the localhost dev ports in
+  // packages/passport/src/nav.ts's DEFAULT_APP_URLS; override per-deployment
+  // via window.__GRIT_SUITE_URLS = { pos, inventory, taskboard } set before
+  // this script runs.
+  function renderSuiteNav() {
+    const suiteNavList = document.getElementById("suiteNavList");
+    if (!suiteNavList) return;
+    const urls = Object.assign(
+      {
+        pos: "http://localhost:3000",
+        inventory: "http://localhost:3001",
+        taskboard: "http://localhost:3002",
+      },
+      window.__GRIT_SUITE_URLS || {},
+    );
+    const apps = [
+      { key: "pos", label: "Grit POS" },
+      { key: "inventory", label: "Grit Inventory" },
+      { key: "taskboard", label: "Grit Taskboard" },
+    ];
+    apps.forEach((app) => {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = urls[app.key];
+      a.textContent = app.label;
+      li.appendChild(a);
+      suiteNavList.appendChild(li);
+    });
+  }
+
   function init() {
     const range = defaultRange();
     fromInput.value = range.from;
     toInput.value = range.to;
     loadBtn.addEventListener("click", loadDashboard);
     downloadCsvBtn.addEventListener("click", downloadCsv);
+    renderSuiteNav();
   }
 
   init();

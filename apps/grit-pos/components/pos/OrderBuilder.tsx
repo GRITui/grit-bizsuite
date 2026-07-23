@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CatalogCategoryDTO, CatalogProductDTO, OrderDTO } from "./types";
+import type { CatalogCategoryDTO, CatalogProductDTO, OrderDTO, OrderLineDTO } from "./types";
 import { formatMoney } from "./format";
 import {
   addOrderLine,
@@ -11,6 +11,7 @@ import {
   tenderOrder,
   updateOrderLineQuantity,
 } from "./api";
+import { newExternalRef } from "./offlineQueue";
 import ProductPicker, { type ProductPickerSelection } from "./ProductPicker";
 import CartPanel from "./CartPanel";
 import TenderPanel from "./TenderPanel";
@@ -21,6 +22,41 @@ const STATUS_LABEL: Record<OrderDTO["status"], string> = {
   closed: "Closed",
   cancelled: "Cancelled",
 };
+
+/**
+ * Builds a client-only OrderLineDTO for a line just queued offline, purely
+ * from catalog data already on hand (no server round-trip yet) — same idea
+ * as tenderOrder's queued-state notice, but a queued line needs to actually
+ * render in the cart. Marked `pending: true` so CartPanel disables
+ * qty/remove controls until the real line lands via sync. Returns null if
+ * the product/variant/add-ons can no longer be resolved from the catalog
+ * (shouldn't happen — the selection just came from the catalog itself).
+ */
+function buildOptimisticLine(
+  catalog: CatalogCategoryDTO[],
+  selection: ProductPickerSelection,
+): OrderLineDTO | null {
+  const product = catalog.flatMap((c) => c.products).find((p) => p.id === selection.productId);
+  if (!product) return null;
+  const variant = selection.variantId
+    ? (product.variants.find((v) => v.id === selection.variantId) ?? null)
+    : null;
+  const selectedAddOns = product.addOns.filter((a) => selection.addOnIds.includes(a.id));
+  const unitPrice = product.basePrice + (variant?.priceDelta ?? 0);
+  const addOnsTotal = selectedAddOns.reduce((sum, a) => sum + a.price, 0);
+  return {
+    id: `pending-${newExternalRef()}`,
+    productId: product.id,
+    productName: product.name,
+    variantId: variant?.id ?? null,
+    variantName: variant?.name ?? null,
+    quantity: selection.quantity,
+    unitPrice: unitPrice + addOnsTotal,
+    lineTotal: (unitPrice + addOnsTotal) * selection.quantity,
+    addOns: selectedAddOns.map((a) => ({ id: a.id, addOnId: a.id, name: a.name, price: a.price })),
+    pending: true,
+  };
+}
 
 export default function OrderBuilder({
   initialOrder,
@@ -45,6 +81,8 @@ export default function OrderBuilder({
   const [error, setError] = useState<string | null>(null);
   const [lastChangeDue, setLastChangeDue] = useState<number | null>(null);
   const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
+  const [scanCode, setScanCode] = useState("");
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const editable = order.status === "open";
   const activeCategory = useMemo(
@@ -61,12 +99,63 @@ export default function OrderBuilder({
     }
   }
 
+  /**
+   * Barcode-scan entry point: a keyboard-wedge scanner types the code + a
+   * trailing Enter into whatever input has focus, so a plain text input
+   * submitting on Enter is all real retail scanner hardware needs — no
+   * camera UI. Resolves the code against variant SKUs already present in
+   * `catalog` (client-side lookup, no extra API call) and, on a match, goes
+   * through the SAME submitLine path the tap flow uses (quantity 1, no
+   * add-ons — add-ons aren't scannable). Shows a clear "not found" message
+   * otherwise.
+   */
+  function handleScanSubmit() {
+    const code = scanCode.trim();
+    setScanCode("");
+    if (!code || !editable) return;
+    setScanError(null);
+    for (const category of catalog) {
+      for (const product of category.products) {
+        const variant = product.variants.find(
+          (v) => v.sku && v.sku.toLowerCase() === code.toLowerCase(),
+        );
+        if (variant) {
+          void submitLine({ productId: product.id, variantId: variant.id, addOnIds: [], quantity: 1 });
+          return;
+        }
+      }
+    }
+    setScanError(`No item found for barcode "${code}"`);
+  }
+
   async function submitLine(selection: ProductPickerSelection) {
     setPending(true);
     setError(null);
     try {
-      const { order: updated } = await addOrderLine(order.id, selection);
-      setOrder(updated);
+      const result = await addOrderLine(order.id, selection, { queueOffline: offlineEnabled });
+      if (result.queued) {
+        // Offline capture: same pattern as handleTender's queued path, but
+        // an added line needs to actually show up in the cart (not just a
+        // notice) or staff can't keep building the order while offline.
+        // Build a synthetic line from catalog data already on hand and
+        // append it optimistically — the real, server-assigned line lands
+        // once the sync loop (OfflineStatusChip) replays the queue.
+        const optimisticLine = buildOptimisticLine(catalog, selection);
+        setOrder((prev) =>
+          optimisticLine
+            ? {
+                ...prev,
+                lines: [...prev.lines, optimisticLine],
+                subtotal: prev.subtotal + optimisticLine.lineTotal,
+                balanceDue: prev.balanceDue + optimisticLine.lineTotal,
+              }
+            : prev,
+        );
+        setQueuedNotice("Offline — item queued. It will sync automatically when back online.");
+        setPickerProduct(null);
+        return;
+      }
+      setOrder(result.order);
       setPickerProduct(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add item");
@@ -187,6 +276,36 @@ export default function OrderBuilder({
                 : "Payment in progress — items are locked."}
           </p>
         )}
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={scanCode}
+            onChange={(e) => {
+              setScanCode(e.target.value);
+              setScanError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleScanSubmit();
+              }
+            }}
+            disabled={!editable}
+            placeholder="Scan barcode…"
+            aria-label="Scan barcode"
+            className="flex-1 rounded border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <button
+            type="button"
+            onClick={handleScanSubmit}
+            disabled={!editable || !scanCode.trim()}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-zinc-700"
+          >
+            Add
+          </button>
+        </div>
+        {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
 
         <div className="flex gap-2 overflow-x-auto pb-1">
           {catalog.map((category) => (

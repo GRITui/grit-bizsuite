@@ -81,6 +81,14 @@ export interface OrderLineDTO {
   unitPrice: number;
   lineTotal: number;
   addOns: OrderLineAddOnDTO[];
+  /**
+   * Client-only marker for a line added while offline (queued, not yet
+   * synced) — never set by the server. Lets the cart show it optimistically
+   * instead of silently vanishing (see components/pos/OrderBuilder.tsx),
+   * while disabling quantity/remove controls until the real server-assigned
+   * line lands via sync.
+   */
+  pending?: boolean;
 }
 
 export interface PaymentDTO {

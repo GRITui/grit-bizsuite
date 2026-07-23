@@ -41,6 +41,11 @@ import { evaluatePromotions, normalizeStackingPolicy, type PromotionCartLine } f
 //                  open/tendered order.
 //  - "quick_sale": full offline sale — create order + lines + cash tender in
 //                  one op (channel dine_in, no table).
+//  - "add_line":   add a single product (+variant +add-ons) to an existing
+//                  open order, captured while offline. Dedupes on
+//                  OrderLine.externalRef (mirrors Payment.externalRef for
+//                  the other two op kinds) since this op never touches the
+//                  payments table.
 //
 // Per-op outcomes are returned as { externalRef, status, orderId?, error? }
 // with status "applied" | "duplicate" | "rejected". The client removes ops
@@ -70,6 +75,11 @@ interface RawOp {
   tenderType?: unknown;
   amount?: unknown;
   lines?: RawLine[];
+  // add_line-only fields (a single RawLine's worth, inline on the op):
+  productId?: unknown;
+  variantId?: unknown;
+  addOnIds?: unknown;
+  quantity?: unknown;
 }
 
 interface SyncResult {
@@ -104,6 +114,15 @@ function isUniqueConstraintError(err: unknown): boolean {
 /** Looks up the order a given externalRef's Payment already settled onto. */
 async function findDuplicateOrderId(externalRef: string): Promise<string | undefined> {
   const dup = await prisma.payment.findUnique({
+    where: { externalRef },
+    select: { orderId: true },
+  });
+  return dup?.orderId;
+}
+
+/** Looks up the order a given externalRef's OrderLine already landed on. */
+async function findDuplicateLineOrderId(externalRef: string): Promise<string | undefined> {
+  const dup = await prisma.orderLine.findUnique({
     where: { externalRef },
     select: { orderId: true },
   });
@@ -391,6 +410,91 @@ async function applyQuickSaleOp(
   return { externalRef, status: "applied", orderId: created.id };
 }
 
+/** Applies one offline-captured "add line" to an existing open order. */
+async function applyAddLineOp(
+  tenantId: string,
+  op: RawOp,
+  externalRef: string,
+): Promise<SyncResult> {
+  if (typeof op.orderId !== "string" || !op.orderId) {
+    return rejected(externalRef, "orderId is required for an add_line op");
+  }
+  if (typeof op.productId !== "string" || !op.productId) {
+    return rejected(externalRef, "productId is required");
+  }
+  const quantity = typeof op.quantity === "number" ? op.quantity : 1;
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
+    return rejected(externalRef, `quantity must be an integer between 1 and ${MAX_QUANTITY}`);
+  }
+  const addOnIds = Array.isArray(op.addOnIds)
+    ? Array.from(new Set(op.addOnIds.filter((id): id is string => typeof id === "string")))
+    : [];
+  const orderId = op.orderId;
+  const productId = op.productId;
+  const variantId = typeof op.variantId === "string" && op.variantId ? op.variantId : null;
+
+  // Same row-lock rationale as applyTenderOp above: externalRef dedupe only
+  // protects against replaying THIS op twice, not against racing a
+  // concurrent writer (e.g. a staff-register add-line submitted live while
+  // this synced batch is in flight). Lock the order row for the duration of
+  // the status check + line insert.
+  try {
+    const orderId2 = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+
+      const order = await tx.order.findFirst({
+        where: { id: orderId, tenantId },
+        select: { id: true, status: true },
+      });
+      if (!order) throw new HttpError(404, "Order not found");
+      if (order.status !== OrderStatus.open) {
+        throw new HttpError(409, `Cannot add items to an order with status "${order.status}"`);
+      }
+
+      const product = await tx.product.findFirst({
+        where: { id: productId, tenantId, isActive: true },
+        include: { variants: true, addOns: true },
+      });
+      if (!product) throw new HttpError(400, "Product not found or inactive");
+
+      let variant: (typeof product.variants)[number] | null = null;
+      if (variantId) {
+        variant = product.variants.find((v) => v.id === variantId) ?? null;
+        if (!variant) throw new HttpError(400, "Variant does not belong to this product");
+      }
+      const selectedAddOns = product.addOns.filter((a) => addOnIds.includes(a.id));
+      if (selectedAddOns.length !== addOnIds.length) {
+        throw new HttpError(400, "One or more add-ons do not belong to this product");
+      }
+
+      const unitPrice = computeUnitPrice(product.basePrice, variant?.priceDelta);
+      const lineTotal = computeLineTotal(unitPrice, selectedAddOns.map((a) => a.price), quantity);
+
+      await tx.orderLine.create({
+        data: {
+          orderId: order.id,
+          productId: product.id,
+          variantId: variant?.id ?? null,
+          quantity,
+          unitPrice,
+          lineTotal,
+          externalRef,
+          addOns: { create: selectedAddOns.map((a) => ({ addOnId: a.id, price: a.price })) },
+        },
+      });
+
+      return order.id;
+    });
+    return { externalRef, status: "applied", orderId: orderId2 };
+  } catch (err) {
+    if (err instanceof HttpError) return rejected(externalRef, err.message);
+    if (isUniqueConstraintError(err)) {
+      return { externalRef, status: "duplicate", orderId: await findDuplicateLineOrderId(externalRef) };
+    }
+    throw err;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const tenantId = await requireTenantId();
@@ -415,6 +519,8 @@ export async function POST(request: Request) {
 
       // Idempotency: a Payment already carrying this externalRef means the
       // op landed on a previous (possibly partially-acknowledged) sync.
+      // "add_line" never creates a Payment, so it's deduped against
+      // OrderLine.externalRef instead (see applyAddLineOp).
       const existing = await prisma.payment.findUnique({
         where: { externalRef },
         select: { orderId: true },
@@ -423,11 +529,23 @@ export async function POST(request: Request) {
         results.push({ externalRef, status: "duplicate", orderId: existing.orderId });
         continue;
       }
+      if (op.kind === "add_line") {
+        const existingLine = await prisma.orderLine.findUnique({
+          where: { externalRef },
+          select: { orderId: true },
+        });
+        if (existingLine) {
+          results.push({ externalRef, status: "duplicate", orderId: existingLine.orderId });
+          continue;
+        }
+      }
 
       if (op.kind === "tender") {
         results.push(await applyTenderOp(tenantId, op, externalRef, completed));
       } else if (op.kind === "quick_sale") {
         results.push(await applyQuickSaleOp(tenantId, op, externalRef, completed));
+      } else if (op.kind === "add_line") {
+        results.push(await applyAddLineOp(tenantId, op, externalRef));
       } else {
         results.push(rejected(externalRef, `Unknown op kind "${String(op.kind)}"`));
       }

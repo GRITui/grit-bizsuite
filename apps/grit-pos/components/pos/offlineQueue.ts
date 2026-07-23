@@ -36,7 +36,19 @@ export interface QueuedQuickSaleOp {
   queuedAt: string;
 }
 
-export type QueuedOp = QueuedTenderOp | QueuedQuickSaleOp;
+/** A line captured offline against an existing open order (no payment). */
+export interface QueuedAddLineOp {
+  kind: "add_line";
+  externalRef: string;
+  orderId: string;
+  productId: string;
+  variantId: string | null;
+  addOnIds: string[];
+  quantity: number;
+  queuedAt: string;
+}
+
+export type QueuedOp = QueuedTenderOp | QueuedQuickSaleOp | QueuedAddLineOp;
 
 const DB_NAME = "grit-pos-offline";
 const DB_VERSION = 1;

@@ -66,3 +66,53 @@ through triage, sprint planning, and execution.
     signs off on the recommendation and answers those questions.
   </researcher_notes>
 </task_item>
+
+<task_item>
+  <id>TSK-003</id>
+  <source>OWNER_POPUP</source>
+  <status>READY_FOR_PM</status>
+  <priority>MEDIUM</priority>
+  <title>grit-pos: add-to-order has no offline support and no barcode scan</title>
+  <description>
+    Owner asked for an assessment of how staff add an item to an order in
+    apps/grit-pos; assessment found two real gaps against POS's own
+    offline-first invariant and floor-operations needs:
+
+    1. **No offline support for adding lines.** apps/grit-pos's offline
+       queue (components/pos/offlineQueue.ts) only defines two op kinds,
+       `tender` and `quick_sale` — there is no `add_line` op. `addOrderLine`
+       (components/pos/api.ts) has no offline fallback/catch for network
+       errors, unlike `tenderOrder` which explicitly enqueues on
+       `isNetworkError`. So building up a cart on an already-open order
+       requires a live connection to POS's own backend (not Inventory —
+       just POS itself), which is inconsistent with POS's stated
+       offline-first design elsewhere (offline-sync route, PromotionRule
+       cached-and-evaluated-offline, etc).
+    2. **No barcode scanning in the staff add-to-order flow.** The staff
+       product picker (components/pos/OrderBuilder.tsx,
+       components/pos/ProductPicker.tsx) is tap-only with no search/filter
+       and no scan-to-add path. A barcode scanning concept already exists
+       elsewhere in the suite (apps/grit-inventory's real Code128 encoder/
+       scan flows for pick/pack), but nothing wires a scanned SKU into
+       adding a line at the register.
+
+    Scope for a build task:
+    - Add an `add_line` offline-queue op (mirroring the `tender`/
+      `quick_sale` pattern: enqueue on network failure, replay via the
+      existing offline-sync route, reconcile server-assigned line ids on
+      sync).
+    - Add a barcode-scan entry point to the add-to-order flow — resolve a
+      scanned code to a product/variant by SKU and add it directly,
+      re-using the same line-creation path the tap flow uses (no separate
+      code path to duplicate maintenance on).
+    - Out of scope: product search/filter UI and toast/retry error UX are
+      separate, lower-priority polish noted in the same assessment — do
+      not bundle them into this task unless trivially cheap once the
+      offline/scan work is done.
+
+    Ground the implementation in the actual existing offline-queue pattern
+    (`tenderOrder`'s `isNetworkError`/`queueOffline` handling in
+    components/pos/api.ts) rather than inventing a new mechanism.
+  </description>
+  <researcher_notes></researcher_notes>
+</task_item>

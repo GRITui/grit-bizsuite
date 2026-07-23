@@ -2,15 +2,17 @@
   <squad_name>Researcher-Squad</squad_name>
   <current_status>IDLE</current_status>
   <active_task_id></active_task_id>
-  <sprint_completion_percentage>0</sprint_completion_percentage>
+  <sprint_completion_percentage>100</sprint_completion_percentage>
 </squad_metadata>
 
 ## Current Focus
-Not yet started. TSK-001 (catalog-unification design doc) is READY_FOR_PM in
-backlog-inbox.md, awaiting this squad's next cycle to pick it up.
+TSK-001 design doc delivered (see loop/design-docs/TSK-001-catalog-unification-design.md).
+Nothing else is READY_FOR_PM for this squad — backlog-inbox.md has no other
+items this cycle. Idle pending owner review of TSK-001 or a new backlog item.
 
 ## Recent Commits / PRs
-(none yet)
+* PR (pending): loop/tsk-001-catalog-unification-design — TSK-001 design doc +
+  backlog-inbox.md/squad-handshake updates.
 
 ## Blockers & QA Failures
 (none)

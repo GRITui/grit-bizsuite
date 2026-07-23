@@ -7,7 +7,7 @@ through triage, sprint planning, and execution.
 <task_item>
   <id>TSK-001</id>
   <source>OWNER_POPUP</source>
-  <status>READY_FOR_PM</status>
+  <status>NEEDS_OWNER_REVIEW</status>
   <priority>HIGH</priority>
   <title>Design: Inventory becomes single source of truth for the shared product catalog</title>
   <description>
@@ -49,5 +49,20 @@ through triage, sprint planning, and execution.
     design document for the owner/architect to review before any build task
     is created from it.
   </description>
-  <researcher_notes></researcher_notes>
+  <researcher_notes>
+    Design doc delivered: loop/design-docs/TSK-001-catalog-unification-design.md
+    (PR opened for review). Recommendation: cached read-only mirror on POS via
+    an extended catalog.variant_synced event (not live reads) — POS's
+    offline-first checkout invariant and the existing promotion.updated
+    precedent both rule out live cross-app reads. Stock stays Inventory-only
+    (POS never models quantityOnHand). Five-phase rollout proposed: (1) extend
+    event/handler, no behavior change; (2) mirror-first creation on sync miss;
+    (3) backfill/reconcile existing POS-only rows incl. a new Inventory
+    "not stock-tracked" product type for made-to-order items; (4) close the
+    OrderLine name/sku snapshot gap (unitPrice is already snapshotted, name
+    isn't); (5) VAT/promotion ownership handoff. Five open questions flagged
+    for explicit owner decision (see doc) — status set to NEEDS_OWNER_REVIEW,
+    not closed: no build task should be created from this until the owner
+    signs off on the recommendation and answers those questions.
+  </researcher_notes>
 </task_item>

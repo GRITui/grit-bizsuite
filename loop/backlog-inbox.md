@@ -195,10 +195,17 @@ through triage, sprint planning, and execution.
     submitLine path the tap flow uses.
 
     Verified: tsc --noEmit clean, next build clean, eslint clean.
-    **Not yet verified**: the migration has not been run against a real/
-    shadow database (no reachable DATABASE_URL in the build sandbox,
-    same caveat as the earlier Store-model migration) — do this before
-    deploying. Status stays READY_FOR_PM until that verification and PR
-    review/merge complete.
+
+    Migration verified against a local Postgres 16 shadow database
+    (`prisma migrate deploy` applied all 6 migrations cleanly from
+    scratch; `prisma migrate status` reports schema up to date, no
+    drift). Confirmed the `OrderLine.externalRef` unique index behaves
+    as designed: multiple NULL values insert fine (the common case for
+    normal online-added lines), and a duplicate non-null value is
+    correctly rejected by the unique constraint (the offline-sync
+    idempotency case). PR #31 has already merged; this closes the one
+    outstanding verification gap noted in that PR's test plan. Status
+    stays READY_FOR_PM pending owner review of the overall TSK-003
+    delivery, not because anything further is blocking.
   </researcher_notes>
 </task_item>

@@ -472,10 +472,13 @@ additionally require the ADMIN role):
 
 ### Build note
 
-The app builds with the **webpack** bundler (`next build --webpack`; see
-`package.json` scripts): the `@grit/*` packages ship TypeScript source using
-ESM-style `./file.js` relative imports, which are mapped to the `.ts`
-sources via `resolve.extensionAlias` in `next.config.ts` — Turbopack has no
-equivalent setting yet. `npm run test:pivot`
-(`scripts/grit-pivot-test.ts`) covers the multi-store/FIFO/transfer core
-against a real Postgres.
+The app builds with plain Turbopack (`next build`, Next 16's default) — no
+`--webpack` flag needed. `packages/**` now ship pre-compiled `dist/**` output
+(each package's own `tsc` build script, wired into `turbo run build`'s
+`dependsOn: ["^build"]`), which is what let Turbopack resolve `@grit/*`
+imports; it previously couldn't, having no equivalent of webpack's
+`resolve.extensionAlias` for mapping a `./file.js` specifier onto a `.ts`
+source file. Run `npm run build` from the repo root at least once before
+building/running this app standalone, so those `dist/` dirs exist. `npm run
+test:pivot` (`scripts/grit-pivot-test.ts`) covers the multi-store/FIFO/transfer
+core against a real Postgres.

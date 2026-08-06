@@ -6,6 +6,23 @@
 **Date:** 2026-07-19
 **Status:** Waves 0–2 shipped and pushed. Wave 3 (test coverage) and several P1/P2 items open — see status tables below.
 
+> **2026-08-06 addendum (session `claude/local-app-agent-squad-qsw15r`):** This
+> whole document predates a 5th app (`grit-manpower`) and the `loop/`
+> AI-Engineering-Loop process — treat it as a historical snapshot of the
+> WMS/promotions/pricing epic specifically, not the current state of the repo.
+> For current status, read `BACKLOG.md` and `loop/backlog-inbox.md` instead.
+> This session's own contribution: the branch had drifted 51 commits behind
+> `main` (several app pivots had landed there, including grit-manpower) so it
+> was reset to match `main` first; then all 5 apps were independently
+> verified from a genuinely empty local Postgres — migrations, build,
+> typecheck, lint, test, and a live dev-server smoke test each — with real
+> bugs found and fixed along the way (see the commit log around this date),
+> plus a live cross-app event-flow test (POS sale → Inventory decrement →
+> Taskboard restock card) to confirm the suite's core integration story
+> actually works end-to-end locally, not just per-app in isolation. Also
+> resolved backlog-inbox.md's TSK-002 manpower-nav-entry question (plain
+> ungated link, not wired into the tier-gated AppSwitcher).
+
 ---
 
 ## Overview

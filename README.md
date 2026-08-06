@@ -1,10 +1,11 @@
 # Grit BizSuite
 
-API-first monorepo merging four standalone SaaS products into one cohesive
-platform for SMEs, per the *Grit BizSuite Ecosystem Monorepo* blueprint spec.
-Each app still runs (and deploys) independently; integration happens only
-through shared data contracts and HMAC-signed internal webhook events — never
-through direct cross-app database queries.
+API-first monorepo merging four standalone SaaS products (plus a fifth,
+grit-manpower, built directly in the monorepo rather than merged in) into one
+cohesive platform for SMEs, per the *Grit BizSuite Ecosystem Monorepo*
+blueprint spec. Each app still runs (and deploys) independently; integration
+happens only through shared data contracts and HMAC-signed internal webhook
+events — never through direct cross-app database queries.
 
 ```
 grit-bizsuite/
@@ -54,11 +55,18 @@ Subscribers are configured per event: `GRIT_SUBSCRIBERS_<EVENT_NAME>` (comma-sep
 | --- | --- | --- |
 | **LITE** | POS | Inventory-facing panels disabled |
 | **GROWTH** | POS + Inventory | Single-location tracking only (multi-location tables gated) |
-| **SCALE** | All four | Multi-location, transfers, FIFO costing, taskboard automation |
+| **SCALE** | POS + Inventory + Taskboard + Reports | Multi-location, transfers, FIFO costing, taskboard automation |
 | Addon `custom_reporting` | — | Unlocks the grit-reports aggregation pipelines |
 
 `hasFeatureAccess()` / `appsForSession()` in `@grit/passport` drive both UI
 navigation (shared `AppSwitcher`) and API-side gates (`assertFeature`, 403).
+grit-manpower is **not** part of this tier system yet — it has its own
+separate login and no `@grit/passport` entitlement gating (see its README).
+It links to/from the other four apps as a plain, ungated URL instead of an
+`AppSwitcher` entry (`apps/grit-taskboard/app/index.html`'s and
+`apps/grit-reports/excel-group-analyze/app.js`'s suite-nav blocks, and
+grit-manpower's own layout) — the same treatment grit-taskboard already gets
+for the same reason (no shared session to gate on).
 
 ## Development
 
@@ -68,11 +76,49 @@ npm run build          # turbo build across apps
 npm run typecheck      # turbo typecheck
 ```
 
-Per-app: the two Next apps build with `npm run build` (pinned to webpack —
-Turbopack cannot yet resolve the packages' `.js → .ts` ESM specifiers) and need
-`DATABASE_URL` only at runtime, not build time. Inventory's full test battery:
-`cd apps/grit-inventory && DATABASE_URL=<postgres> npm run test:all`. Taskboard
-and reports have pure-node suites under `tests/`.
+Per-app: the three Next apps (`grit-pos`, `grit-inventory`, `grit-manpower`)
+build with plain Turbopack (Next 16's default, no `--webpack` flag) and need
+`DATABASE_URL` only at runtime, not build time — `packages/**` ship
+pre-compiled `dist/**` output (each package's own `tsc` build script, wired
+into `turbo run build`'s `dependsOn: ["^build"]`), which is what unblocked
+Turbopack resolving `@grit/*` imports; run `npm run build` at least once
+before running an app standalone so those `dist/` dirs exist. Inventory's full
+test battery: `cd apps/grit-inventory && DATABASE_URL=<postgres> npm run
+test:all`. Taskboard and reports have pure-node suites under `tests/`.
+
+### Running the full suite against local Postgres
+
+Each Next app falls back to `@prisma/adapter-pg` for a `localhost`/`127.0.0.1`
+`DATABASE_URL` (no real Neon credentials needed for local dev). Taskboard and
+reports have no Prisma migrations — taskboard applies its `sql/schema-core.sql`
+by hand and reads Postgres through `dev/local-run`'s Neon-mock shim; reports
+has no DB of its own (it calls the other apps' HTTP endpoints instead).
+
+1. Create one Postgres 16 database per app (`grit_pos`, `grit_inventory`,
+   `grit_manpower`, `grit_taskboard`; reports needs none), and `cp
+   .env.example .env` in each app dir, pointing `DATABASE_URL` at each.
+2. `npx prisma migrate deploy` inside `grit-pos`, `grit-inventory`, and
+   `grit-manpower`; apply `apps/grit-taskboard/sql/schema-core.sql` via `psql`
+   for taskboard.
+3. Seed demo data with `dev/local-run/seed-demo-pos.ts` +
+   `seed-demo-inventory.ts` (or the `seed-trading-co-*`/`seed-demo-clothshop`
+   variants) — inventory's seed takes `DEMO_ORG_ID` equal to the tenant id
+   POS's seed just printed, since cross-app tenancy is org-id equality, not a
+   foreign key.
+4. Conventional local ports (matching `packages/passport/src/nav.ts`'s
+   `DEFAULT_APP_URLS`, plus `3004` for manpower which isn't part of that
+   entitlement-gated nav system): **pos `3000`, inventory `3001`, taskboard
+   `3002`, reports `3003`, manpower `3004`.** Start each app on its port,
+   then run the no-build apps via `dev/local-run/serve.mjs` (see
+   `apps/grit-taskboard/README.md`).
+5. For the cross-app event chain (POS sale → Inventory decrement → Taskboard
+   restock card) to actually fire locally, set the same
+   `GRIT_EVENT_WEBHOOK_SECRET` in all three apps' `.env`, plus
+   `GRIT_SUBSCRIBERS_TRANSACTION_COMPLETED=http://localhost:3001/api/events/grit`
+   on grit-pos and
+   `GRIT_SUBSCRIBERS_INVENTORY_THRESHOLD_BREACHED=http://localhost:3002/api/grit-events`
+   on grit-inventory — see `packages/shared-events/src/bus.ts`'s doc comment
+   for the full env-var convention.
 
 The canonical platform schema (blueprint Section 3, plus platform extensions)
 is in `packages/database/migrations/` with a mirrored Prisma schema. Apps keep

@@ -55,6 +55,10 @@
           <span class="settings-label">Grit Reports</span>
           <span class="settings-label" style="color:var(--text3)">&rsaquo;</span>
         </a>
+        <a class="settings-row" href="http://localhost:3004" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" data-suite-app="manpower">
+          <span class="settings-label">Grit Manpower</span>
+          <span class="settings-label" style="color:var(--text3)">&rsaquo;</span>
+        </a>
       </div>
       <p style="font-size:12px;color:var(--text3);margin:6px 4px 14px;line-height:1.4">
         Opens the other Grit BizSuite apps in a new tab. Taskboard has its own
@@ -125,7 +129,7 @@
 // window.__SIDEKICK_API_BASE).
 (function () {
   var urls = Object.assign(
-    { pos: 'http://localhost:3000', inventory: 'http://localhost:3001', reports: 'http://localhost:3003' },
+    { pos: 'http://localhost:3000', inventory: 'http://localhost:3001', reports: 'http://localhost:3003', manpower: 'http://localhost:3004' },
     window.__GRIT_SUITE_URLS || {},
   );
   document.querySelectorAll('#suite-nav-list [data-suite-app]').forEach(function (a) {

@@ -400,8 +400,8 @@
   // browser to gate entries on the way AppSwitcher's lock treatment does.
   // Every entry links out plainly. Defaults mirror the localhost dev ports in
   // packages/passport/src/nav.ts's DEFAULT_APP_URLS; override per-deployment
-  // via window.__GRIT_SUITE_URLS = { pos, inventory, taskboard } set before
-  // this script runs.
+  // via window.__GRIT_SUITE_URLS = { pos, inventory, taskboard, manpower }
+  // set before this script runs.
   function renderSuiteNav() {
     const suiteNavList = document.getElementById("suiteNavList");
     if (!suiteNavList) return;
@@ -410,6 +410,7 @@
         pos: "http://localhost:3000",
         inventory: "http://localhost:3001",
         taskboard: "http://localhost:3002",
+        manpower: "http://localhost:3004",
       },
       window.__GRIT_SUITE_URLS || {},
     );
@@ -417,6 +418,7 @@
       { key: "pos", label: "Grit POS" },
       { key: "inventory", label: "Grit Inventory" },
       { key: "taskboard", label: "Grit Taskboard" },
+      { key: "manpower", label: "Grit Manpower" },
     ];
     apps.forEach((app) => {
       const li = document.createElement("li");

@@ -3,6 +3,7 @@ import { testDb as db, cleanupTenant } from "./db-test-client";
 import { checkRestockAlerts } from "@/lib/restock";
 import { recomputeForecastSnapshots } from "@/lib/forecast";
 import { scanDeadStock } from "@/lib/deadstock";
+import { applyStockMovement } from "@/lib/inventory";
 
 /**
  * Exercises the three Vercel Cron jobs' underlying logic (lib/restock.ts,
@@ -25,17 +26,34 @@ async function main() {
   const store = await db.store.create({ data: { tenantId: tenant.id, name: "Main Store" } });
   const product = await db.product.create({ data: { tenantId: tenant.id, name: "Cron Test Product" } });
 
-  await db.variant.create({
+  // Stock lives in StoreStock (per-store), not just Variant.quantityOnHand
+  // post-pivot — restock.ts and the admin dashboard both read StoreStock
+  // directly (see lib/restock.ts's comment on per-store threshold checks).
+  // Setting Variant.quantityOnHand directly (as the API routes never do)
+  // would leave no StoreStock row and make this variant invisible to the
+  // job, so seed it the same way the real product/variant-create routes do:
+  // create at 0, then apply the stock via applyStockMovement.
+  const lowVariant = await db.variant.create({
     data: {
       tenantId: tenant.id,
       productId: product.id,
       sku: `LOW-${run}`,
       name: "Low stock",
       price: 5,
-      quantityOnHand: 1,
+      quantityOnHand: 0,
       reorderThreshold: 10,
     },
   });
+  await db.$transaction((tx) =>
+    applyStockMovement(tx, {
+      tenantId: tenant.id,
+      storeId: store.id,
+      variantId: lowVariant.id,
+      delta: 1,
+      reason: "manual_adjustment",
+      note: "Initial stock (test seed)",
+    })
+  );
 
   const activeVariant = await db.variant.create({
     data: {

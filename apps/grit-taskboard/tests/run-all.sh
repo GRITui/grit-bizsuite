@@ -12,6 +12,14 @@
 #
 # Usage:  bash tests/run-all.sh
 set -u
+# check-*.js (Playwright, live-UI suites) were all deleted along with the
+# freelancer persona surface (commit "grit-taskboard: remove Sidekick
+# persona, keep ops kanban only") — none exist in this app anymore. Without
+# nullglob, a non-matching `tests/check-*.js` glob leaves the literal
+# pattern string in the loop below, `node` fails to open a file by that
+# literal name, and that gets misreported as a suite crash — so
+# `run-all.sh` would always exit non-zero even with every real check green.
+shopt -s nullglob
 cd "$(dirname "$0")/.."
 
 # Static servers on the fixed ports the suites expect (8923 = most suites,
@@ -35,11 +43,16 @@ for f in tests/test-*.mjs; do
 done
 
 echo "── Playwright suites (live UI against app/) ──"
-for f in tests/check-*.js; do
-  out=$(node "$f" 2>&1 | grep -E "passed, [0-9]+ failed" | tail -1)
-  echo "$(basename "$f") → ${out:-CRASH}"
-  [[ "$out" == *" 0 failed" ]] || fail=1
-done
+playwright_suites=(tests/check-*.js)
+if [ "${#playwright_suites[@]}" -eq 0 ]; then
+  echo "(none — check-*.js suites were removed with the freelancer persona surface)"
+else
+  for f in "${playwright_suites[@]}"; do
+    out=$(node "$f" 2>&1 | grep -E "passed, [0-9]+ failed" | tail -1)
+    echo "$(basename "$f") → ${out:-CRASH}"
+    [[ "$out" == *" 0 failed" ]] || fail=1
+  done
+fi
 
 # Only kill servers this run started.
 [ -n "${STARTED:-}" ] && kill $STARTED 2>/dev/null

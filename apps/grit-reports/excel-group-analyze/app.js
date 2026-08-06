@@ -392,7 +392,7 @@
     }
   }
 
-  // Suite nav — plain, ungated links to the other three Grit BizSuite apps.
+  // Suite nav — plain, ungated links to the other four Grit BizSuite apps.
   // Unlike the Next.js apps' AppSwitcher (packages/shared-ui/src/AppSwitcher.tsx),
   // this page has no client-side session: the `grit_passport` JWT is only ever
   // verified server-side inside the aggregator API (lib/passportVerify.js),

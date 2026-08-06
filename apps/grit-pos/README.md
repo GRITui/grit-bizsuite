@@ -156,29 +156,39 @@ unset/mismatched token as authenticated.
 
 ## Migrations
 
-`prisma/migrations/20260718120000_grit_pos_pivot/migration.sql` (this app
-previously shipped schema-only; the migrations dir is new). All statements
-are additive and idempotent. `npx prisma validate` passes without a
-database; `npx prisma migrate deploy` requires a reachable `DATABASE_URL`
-(or apply the SQL with psql). The migration also creates `event_outbox`,
-mirroring `packages/database/migrations/0002_platform_extensions.sql`.
+`prisma/migrations/20260718000000_baseline/migration.sql` squashes this app's
+earlier incremental history (which could not replay cleanly against a
+genuinely empty database) into one clean baseline — see the migration file's
+own header comment for why. All statements are additive and idempotent.
+`npx prisma validate` passes without a database; `npx prisma migrate deploy`
+requires a reachable `DATABASE_URL` (or apply the SQL with psql), and has been
+verified end-to-end against a fresh empty Postgres database (all 6 migrations
+apply cleanly, no ledger hacks needed). The baseline migration also creates
+`event_outbox`, mirroring `packages/database/migrations/0002_platform_extensions.sql`.
 
-`prisma/migrations/20260719120000_grit_pos_location_model/migration.sql` adds
-the `Store` model (BACKLOG.md P1 "No Location model in POS") and a nullable
-`Order.storeId`, plus a data backfill that creates exactly one
-`isDefault = true` Store per existing tenant so single-location tenants see
-no behavior change. Hand-written (not diff-generated from a live database —
-see the migration file's own header comment for why), following the same
+Later migrations layer on additively: `add_variant_inventory_id` (the
+`catalog.variant_synced` durable join key), `add_tenant_vat_mode`,
+`backfill_default_store` (the `Store` model, BACKLOG.md P1 "No Location model
+in POS", plus a data backfill creating exactly one `isDefault = true` Store
+per existing tenant so single-location tenants see no behavior change),
+`add_reconciliation_vat_liability`, and `add_order_line_external_ref`
+(offline add-line idempotency). Hand-written, not diff-generated from a live
+database — see each migration file's own header comment — following the same
 `gen_random_uuid()`-backed deterministic-id convention as
-`apps/grit-inventory`'s `StoreStock` backfill.
+`apps/grit-inventory`'s `StoreStock` backfill where relevant.
 
 ## Build notes
 
-- Builds with **webpack** (`next build --webpack`): the `@grit/*` packages
-  ship TypeScript source with ESM `./module.js` relative imports, which
-  webpack resolves via `experimental.extensionAlias` (see `next.config.ts`).
-  Turbopack (the Next 16 default) has no equivalent and cannot resolve those
-  imports; revisit if the shared packages move to extensionless imports.
+- Builds with plain Turbopack (`next build`, Next 16's default) — no
+  `--webpack` flag needed. `packages/**` (`@grit/database`, `@grit/passport`,
+  `@grit/shared-events`, `@grit/shared-ui`) now ship pre-compiled `dist/**`
+  output via their own `tsc` build scripts (wired into `turbo run build`'s
+  `dependsOn: ["^build"]`), which is what let Turbopack resolve `@grit/*`
+  imports — it previously couldn't, because it has no equivalent of webpack's
+  `resolve.extensionAlias` for mapping a `./module.js` specifier onto a
+  `.ts` source file. Run `npm run build` from the repo root at least once (or
+  `turbo run build --filter=@grit/*`) before building/running this app
+  standalone, so those `dist/` dirs exist.
 - `lib/prisma.ts` constructs the Prisma client lazily (first access), so
   `next build` succeeds with no env vars set.
 

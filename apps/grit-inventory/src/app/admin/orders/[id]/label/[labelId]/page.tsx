@@ -18,14 +18,20 @@ function Barcode({ value }: { value: string }) {
   const moduleWidth = 2; // px per module, tuned to stay legible at 4x6 print size
   const totalWidth = bars.reduce((sum, bar) => sum + bar.width, 0) * moduleWidth;
 
-  let x = 0;
-  const rects = bars.map((bar, i) => {
-    const rect = bar.black ? (
+  const positionedBars = bars.reduce<{ x: number; bar: (typeof bars)[number] }[]>(
+    (acc, bar) => {
+      const previous = acc[acc.length - 1];
+      const x = previous ? previous.x + previous.bar.width * moduleWidth : 0;
+      acc.push({ x, bar });
+      return acc;
+    },
+    [],
+  );
+  const rects = positionedBars.map(({ x, bar }, i) =>
+    bar.black ? (
       <rect key={i} x={x} y={0} width={bar.width * moduleWidth} height="100%" fill="black" />
-    ) : null;
-    x += bar.width * moduleWidth;
-    return rect;
-  });
+    ) : null,
+  );
 
   return (
     <svg

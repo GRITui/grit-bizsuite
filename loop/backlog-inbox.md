@@ -128,6 +128,32 @@ through triage, sprint planning, and execution.
     closed) until those are resolved — this PR only closes the "no
     navigation links at all" gap, not the "no real SSO carry-through"
     gap already tracked in BACKLOG.md.
+
+    **Owner decision (architect pass, local-app-agent-squad-qsw15r session):**
+    grit-manpower gets a nav entry, but as a plain ungated link (same
+    treatment as taskboard/reports use for each other today), NOT as an
+    entry in @grit/passport's buildAppNav/AppSwitcher — that component's
+    `enabled`/tier-gating logic assumes every app maps onto a LITE/GROWTH/
+    SCALE entitlement, and manpower deliberately has no entitlement tier
+    yet (AGENTS.md). Wiring it into buildAppNav would either fabricate a
+    tier answer or require a real entitlement-model decision, which is a
+    separate, bigger task than "add a link." Implemented: grit-taskboard's
+    and grit-reports' existing plain suite-nav lists both gained a
+    "Grit Manpower" entry (port 3004 default, `GRIT_MANPOWER_URL`-style
+    override via each file's existing `window.__GRIT_SUITE_URLS` pattern —
+    actually taskboard/reports don't read a manpower-specific env var by
+    that name since they're no-build static pages with hardcoded JS
+    defaults, same as their existing entries); grit-manpower's own staff
+    layout gained a reciprocal plain `SuiteNav` linking out to the other
+    four apps (`app/(staff)/(app)/layout.tsx`), reading the same
+    `GRIT_*_URL` env vars `@grit/passport/src/nav.ts` uses so a real
+    deployment's URLs stay in sync without duplicating them.
+
+    Still open, unchanged from before: the shared-parent-domain/cookie-
+    domain infra decision for actual SSO session carry-through in
+    production. That's a deploy/infra call, not something a local-dev
+    session can verify or decide — status stays READY_FOR_PM pending that
+    one remaining piece.
   </researcher_notes>
 </task_item>
 

@@ -64,7 +64,11 @@ export async function checkVelocitySurge(tenantId: string): Promise<void> {
     // the same tenant so only one can win the "not yet emitted" check per
     // window.
     const built = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId})::bigint)`;
+      // $executeRaw, not $queryRaw: the lock's return value (void) is never
+      // used, and Prisma's pg driver adapter (used for local Postgres dev,
+      // see lib/prisma.ts) has no result-decoder registered for a void
+      // column, throwing UnsupportedNativeDataType if asked to decode one.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId})::bigint)`;
 
       const transactionsInWindow = await tx.order.count({
         where: {

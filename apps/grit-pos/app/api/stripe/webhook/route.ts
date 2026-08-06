@@ -60,7 +60,11 @@ async function confirmPickupOrder(session: Stripe.Checkout.Session) {
   // second one's re-check inside the lock reliably observes the first's
   // committed Payment and skips creating a duplicate.
   const outcome = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${paymentIntentId})::bigint)`;
+    // $executeRaw, not $queryRaw: the lock's return value (void) is never
+    // used, and Prisma's pg driver adapter (used for local Postgres dev, see
+    // lib/prisma.ts) has no result-decoder registered for a void column,
+    // throwing UnsupportedNativeDataType if asked to decode one.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${paymentIntentId})::bigint)`;
 
     const existingPayment = await tx.payment.findFirst({
       where: { stripePaymentIntentId: paymentIntentId },

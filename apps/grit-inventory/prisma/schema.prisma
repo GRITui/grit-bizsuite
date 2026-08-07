@@ -225,6 +225,15 @@ model Variant {
   quantityOnHand   Int      @default(0)
   reorderThreshold Int      @default(0)
   isActive         Boolean  @default(true)
+  /// Grit BizSuite pivot (catalog-unification epic, phase 5): VAT-exemption
+  /// is a SKU-level fact (not a product-level one), so this lives on Variant.
+  /// Defaults true since most retail goods are standard-rated VAT; staff flip
+  /// it off per-SKU where the law requires it. Synced to Grit POS via
+  /// catalog.variant_synced's vat_applicable field — see
+  /// CatalogVariantSyncedData in @grit/shared-events/contracts, and matches
+  /// how apps/grit-pos/prisma/schema.prisma's own (previously-unsynced)
+  /// Variant.vatApplicable column is documented.
+  vatApplicable    Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

@@ -81,6 +81,11 @@ export async function POST(
         quantity,
         unitPrice,
         lineTotal,
+        // Snapshotted at creation time, same as unitPrice/lineTotal above —
+        // see OrderLine.productNameSnapshot's doc comment (prisma/schema.prisma).
+        productNameSnapshot: product.name,
+        variantNameSnapshot: variant?.name ?? null,
+        skuSnapshot: variant?.sku ?? null,
         addOns: {
           create: selectedAddOns.map((a) => ({ addOnId: a.id, price: a.price })),
         },

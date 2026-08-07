@@ -274,9 +274,14 @@ export async function serializeOrder(order: OrderWithRelations): Promise<OrderDT
     lines: order.lines.map((line) => ({
       id: line.id,
       productId: line.productId,
-      productName: line.product.name,
+      // Prefer the line-creation-time snapshot (see OrderLine.productNameSnapshot's
+      // doc comment, prisma/schema.prisma) so a later Inventory-driven catalog
+      // rename never changes how a historical line reads. Falls back to the
+      // live join only for lines created before this migration, which have
+      // no snapshot.
+      productName: line.productNameSnapshot ?? line.product.name,
       variantId: line.variantId,
-      variantName: line.variant?.name ?? null,
+      variantName: line.variantNameSnapshot ?? line.variant?.name ?? null,
       quantity: line.quantity,
       unitPrice: Number(line.unitPrice),
       lineTotal: Number(line.lineTotal),

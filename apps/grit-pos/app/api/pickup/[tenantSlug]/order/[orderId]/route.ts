@@ -48,8 +48,13 @@ export async function GET(
 
   const lines = order.lines.map((line) => ({
     id: line.id,
-    productName: line.product.name,
-    variantName: line.variant?.name ?? null,
+    // Prefer the line-creation-time snapshot (see OrderLine.productNameSnapshot's
+    // doc comment, prisma/schema.prisma) so a later Inventory-driven catalog
+    // rename never changes how a historical line reads. Falls back to the
+    // live join only for lines created before this migration, which have no
+    // snapshot.
+    productName: line.productNameSnapshot ?? line.product.name,
+    variantName: line.variantNameSnapshot ?? line.variant?.name ?? null,
     quantity: line.quantity,
     unitPrice: Number(line.unitPrice),
     addOns: line.addOns.map((a) => ({ name: a.addOn.name, price: Number(a.price) })),

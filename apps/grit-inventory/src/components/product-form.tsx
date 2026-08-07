@@ -7,12 +7,14 @@ type Product = {
   id: string;
   name: string;
   description: string | null;
+  isStockTracked?: boolean;
 };
 
 function EditProductDialog({ product, onClose }: { product: Product; onClose: () => void }) {
   const router = useRouter();
   const [name, setName] = useState(product.name);
   const [description, setDescription] = useState(product.description ?? "");
+  const [isStockTracked, setIsStockTracked] = useState(product.isStockTracked ?? true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +26,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
       const res = await fetch(`/api/products/${product.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description: description || undefined }),
+        body: JSON.stringify({ name, description: description || undefined, isStockTracked }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -65,6 +67,15 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </div>
+          <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={isStockTracked}
+              onChange={(e) => setIsStockTracked(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+            />
+            Track stock for this product
+          </label>
         </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
@@ -160,6 +171,7 @@ export function NewProductForm() {
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("0");
   const [reorderThreshold, setReorderThreshold] = useState("0");
+  const [isStockTracked, setIsStockTracked] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -174,6 +186,7 @@ export function NewProductForm() {
         body: JSON.stringify({
           name,
           description: description || undefined,
+          isStockTracked,
           initialVariant: sku
             ? {
                 sku,
@@ -212,6 +225,15 @@ export function NewProductForm() {
           <label className={labelClass}>Description</label>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} rows={2} />
         </div>
+        <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+          <input
+            type="checkbox"
+            checked={isStockTracked}
+            onChange={(e) => setIsStockTracked(e.target.checked)}
+            className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+          />
+          Track stock for this product
+        </label>
       </div>
 
       <fieldset className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 import { PrintLabelActions } from "@/components/print-label-actions";
+import { CarrierTrackingStatus } from "@/components/carrier-tracking-status";
 import { encodeCode128B } from "@/lib/barcode/code128";
 
 export const dynamic = "force-dynamic";
@@ -113,6 +114,13 @@ export default async function ParcelLabelPage({
             {label.trackingRef}
           </div>
         </div>
+
+        <CarrierTrackingStatus
+          labelId={label.id}
+          carrierTrackingId={label.carrierTrackingId}
+          carrierStatus={label.carrierStatus}
+          carrierStatusUpdatedAt={label.carrierStatusUpdatedAt?.toISOString() ?? null}
+        />
       </div>
     </div>
   );

@@ -1,8 +1,18 @@
 # Design Document: Inventory as Single Source of Truth for the Shared Product Catalog
 
-> Status: NEEDS_OWNER_REVIEW. Produced by Researcher-Squad for backlog item TSK-001.
-> No code/schema changes are included in this task — this document is the
-> deliverable, for owner/architect sign-off before any build task is created.
+> Status: OWNER_APPROVED — Phases 1-2 SHIPPED. Produced by Researcher-Squad for
+> backlog item TSK-001; owner signed off on this doc's recommendation
+> (cached read-only mirror on POS, Inventory as source of truth) during the
+> `claude/local-app-agent-squad-qsw15r` roadmap-build pass. Phase 1 (extend
+> `catalog.variant_synced` with full product/variant payload) and Phase 2
+> (mirror-first creation on sync miss, replacing the old no-op) are built
+> and verified — see this doc's "Phasing / rollout plan" section for exactly
+> what each phase covers, and BACKLOG.md's "POS ↔ Inventory SKU alignment"
+> entry for the shipped-vs-remaining breakdown. Phases 3-5 (backfill of
+> existing POS-only rows, the `stockTracked` non-inventory product type,
+> the `OrderLine` name/sku snapshot gap, and VAT/promotion ownership
+> handoff) remain open — each is independently scoped below and still
+> needs its own build pass.
 
 ## Current state
 

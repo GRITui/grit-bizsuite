@@ -51,6 +51,10 @@ const BADGE_STYLES: Record<string, string> = {
   out_for_delivery: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
   delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
   failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  // Carrier tracking statuses (src/lib/carrier/types.ts CarrierTrackingStatusValue).
+  created: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  in_transit: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  exception: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
 
 export function StatusBadge({ status }: { status: string }) {

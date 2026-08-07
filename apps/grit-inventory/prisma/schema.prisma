@@ -183,6 +183,14 @@ model Product {
   /// documented in README.)
   supplierName String?
   isActive     Boolean  @default(true)
+  /// Grit BizSuite pivot (catalog-unification epic, phase-3 groundwork —
+  /// see loop/design-docs/TSK-001-catalog-unification-design.md): lets a
+  /// product exist in Inventory's canonical catalog without requiring real
+  /// stock tracking, so hospitality-style "made-to-order" items (a coffee, a
+  /// plated dish) can be represented here without forcing fake stock
+  /// numbers on them. Defaults true so every existing product keeps today's
+  /// stock-tracked behavior unchanged.
+  isStockTracked Boolean @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -755,6 +763,13 @@ model ParcelLabel {
   createdBy    User?     @relation("ParcelLabelCreatedBy", fields: [createdById], references: [id])
   createdAt    DateTime  @default(now())
   printedAt    DateTime?
+  /// Carrier integration (pluggable adapter, see src/lib/carrier/ — mock
+  /// carrier by default, no real credentials required). All three are
+  /// nullable/best-effort: label creation must never fail because the
+  /// carrier call failed or hasn't run yet.
+  carrierTrackingId      String?
+  carrierStatus          String?
+  carrierStatusUpdatedAt DateTime?
 
   @@index([tenantId, orderId])
 }

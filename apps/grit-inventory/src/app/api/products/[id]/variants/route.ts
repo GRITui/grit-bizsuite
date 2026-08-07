@@ -70,6 +70,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       inventory_variant_id: variant.id,
       sku: variant.sku,
       product_name: product.name,
+      product_id: product.id,
+      variant_name: variant.name,
+      price: Number(variant.price),
     });
 
     return NextResponse.json({ variant }, { status: 201 });

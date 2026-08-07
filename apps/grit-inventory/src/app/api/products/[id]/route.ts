@@ -8,6 +8,9 @@ const updateProductSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   isActive: z.boolean().optional(),
+  // Grit BizSuite pivot (catalog-unification epic, phase-3 groundwork):
+  // lets made-to-order items skip real stock tracking.
+  isStockTracked: z.boolean().optional(),
 });
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

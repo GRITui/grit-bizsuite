@@ -206,6 +206,16 @@ model Product {
   basePrice   Decimal @db.Decimal(10, 2)
   isActive    Boolean @default(true)
 
+  /// Inventory's canonical Product.id — the stable grouping key used by the
+  /// inbound `catalog.variant_synced` webhook (see app/api/events/grit/route.ts,
+  /// handleCatalogVariantSynced) so multiple variants synced over separate
+  /// events land under ONE mirrored Product instead of a duplicate per
+  /// variant. Null for every product that isn't a mirror of an Inventory
+  /// product (i.e. everything created locally in POS today). Catalog-
+  /// unification phase 2 — see packages/shared-events/src/contracts.ts's
+  /// CatalogVariantSyncedData doc comment.
+  inventoryProductId String?
+
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   category   Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   variants   Variant[]
@@ -214,6 +224,7 @@ model Product {
 
   @@index([tenantId])
   @@index([categoryId])
+  @@index([inventoryProductId])
   @@map("products")
 }
 

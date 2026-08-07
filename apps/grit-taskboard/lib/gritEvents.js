@@ -35,6 +35,7 @@ export const EVENT_NAMES = [
   'inventory.transfer_completed',
   'pos.velocity_surge',
   'task.completed',
+  'manpower.shift_unassigned',
 ];
 
 function hmacSha256Hex(secret, message) {
@@ -99,8 +100,8 @@ function isRecord(v) { return typeof v === 'object' && v !== null && !Array.isAr
 function isNonEmptyString(v) { return typeof v === 'string' && v.length > 0; }
 function isFiniteNumber(v) { return typeof v === 'number' && Number.isFinite(v); }
 
-// Only the two events this app actually consumes get a data-shape
-// validator — everything else in EVENT_NAMES (transaction.completed,
+// Only the events this app actually consumes get a data-shape validator —
+// everything else in EVENT_NAMES (transaction.completed,
 // inventory.transfer_completed, task.completed itself) validates on
 // envelope shape alone below, since this app never reads their `data` and
 // api/grit-events.js 202-ignores them before any data field is touched.
@@ -119,6 +120,13 @@ const DATA_VALIDATORS = {
     isFiniteNumber(d.transactions_in_window) &&
     isFiniteNumber(d.window_minutes) &&
     isFiniteNumber(d.threshold),
+  'manpower.shift_unassigned': d =>
+    isRecord(d) &&
+    isNonEmptyString(d.shift_id) &&
+    isNonEmptyString(d.location_id) &&
+    (d.role === null || isNonEmptyString(d.role)) &&
+    isNonEmptyString(d.starts_at) &&
+    isNonEmptyString(d.ends_at),
 };
 
 export function isGritEventName(v) {

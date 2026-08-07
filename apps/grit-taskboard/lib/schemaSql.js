@@ -40,6 +40,11 @@ create table if not exists users (
   -- rather than dropped, so no pre-existing row's data is destroyed.
   line_sub          text unique,
   line_picture      text,
+  -- Grit BizSuite SSO (api/auth-sso.js): the \`userId\` claim from a verified
+  -- grit_passport JWT, so a repeat SSO login for the same person resolves
+  -- to the same shadow account. Null for accounts that only ever used this
+  -- app's own username/password login.
+  grit_user_id      text unique,
   profile_complete  boolean not null default true,
   -- Null until the one-time local->server upload (api/migrate-upload.js)
   -- has run for this account. A later cutover phase must not let an
@@ -88,6 +93,12 @@ alter table users add column if not exists stripe_customer_id text;
 alter table users add column if not exists stripe_subscription_id text;
 alter table users add column if not exists current_period_end timestamptz;
 alter table users add column if not exists team_seats integer;
+-- Grit BizSuite SSO: the \`userId\` claim from a verified grit_passport JWT
+-- (api/auth-sso.js), so a repeat SSO login for the same person resolves to
+-- the SAME shadow account instead of minting a new one every time. Null for
+-- every account that has only ever used this app's own username/password
+-- login — SSO is an additional path in, not a replacement for it.
+alter table users add column if not exists grit_user_id text unique;
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'users_plan_check') then
     alter table users add constraint users_plan_check check (plan in ('basic','pro','team'));
@@ -150,10 +161,11 @@ create table if not exists ops_tasks (
   description       text,
   status            text not null default 'todo' check (status in ('todo', 'in_progress', 'review', 'done')),
   priority          text not null default 'normal' check (priority in ('low', 'normal', 'high')),
-  -- 'system_inventory' | 'system_pos' -> minted by api/grit-events.js from an
-  -- inbound inventory.threshold_breached/pos.velocity_surge webhook;
-  -- 'manual' -> created by a person in the Ops board UI (api/ops-tasks.js).
-  triggered_by      text not null default 'manual' check (triggered_by in ('system_inventory', 'system_pos', 'manual')),
+  -- 'system_inventory' | 'system_pos' | 'system_manpower' -> minted by
+  -- api/grit-events.js from an inbound inventory.threshold_breached /
+  -- pos.velocity_surge / manpower.shift_unassigned webhook; 'manual' ->
+  -- created by a person in the Ops board UI (api/ops-tasks.js).
+  triggered_by      text not null default 'manual' check (triggered_by in ('system_inventory', 'system_pos', 'system_manpower', 'manual')),
   assigned_shift    text,
   -- Idempotency key for event-driven cards: the source event's event_id.
   -- NULL for manually created cards; unique when present (same
@@ -167,6 +179,22 @@ create table if not exists ops_tasks (
 
 create index if not exists idx_ops_tasks_user on ops_tasks(user_cuid);
 create index if not exists idx_ops_tasks_user_status on ops_tasks(user_cuid, status);
+
+-- Widens the triggered_by check for an already-live table (a fresh
+-- \`create table\` above already has 'system_manpower' baked in) — same
+-- idempotent drop-and-recreate-if-different-shape convention as the
+-- users_plan_check backfill further up this file.
+do $$ begin
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'ops_tasks_triggered_by_check'
+      and pg_get_constraintdef(oid) not like '%system_manpower%'
+  ) then
+    alter table ops_tasks drop constraint ops_tasks_triggered_by_check;
+    alter table ops_tasks add constraint ops_tasks_triggered_by_check
+      check (triggered_by in ('system_inventory', 'system_pos', 'system_manpower', 'manual'));
+  end if;
+end $$;
 
 -- One taskboard account <-> one Grit BizSuite organization id (an opaque
 -- string minted by the platform side — grit-pos/grit-inventory/grit-passport

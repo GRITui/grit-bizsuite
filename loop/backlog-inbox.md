@@ -90,6 +90,24 @@ through triage, sprint planning, and execution.
     product isn't deactivated when only one sibling variant is deleted
     (documented in the POS handler, not fixed). Status stays READY_FOR_PM,
     not closed — Phases 3-5 need their own build task(s).
+
+    **Phases 3-5 shipped (same session, follow-up pass):** all three
+    remaining phases built and the multi-variant deletion limitation fixed
+    for real. Phase 3: `dev/local-run/backfill-catalog-unification.ts`, an
+    idempotent/resumable script (no maintenance window needed — one of the
+    doc's open questions, resolved in favor of "safe to run against a live
+    system"), run once against the local demo data. Phase 4: `OrderLine`
+    snapshot columns populated at all four line-creation call sites, not
+    just the one originally scoped. Phase 5: `Variant.vatApplicable` moved
+    to grit-inventory and synced down; promotion matching verified
+    unaffected with a real live discount test against a just-backfilled
+    SKU. Deletion fix: `Variant.isActive` replaces the old
+    "exactly-one-variant" approximation with a real per-variant flag. Also
+    fixed a real bug caught while verifying: the original Phase-1/2 sync
+    backfill only ever wrote `inventoryVariantId`, never actually applying
+    a renamed `product_name`/`variant_name` — a catalog rename could never
+    reach an already-synced POS row until this pass. All five phases now
+    fully shipped; nothing from this design doc remains open.
   </researcher_notes>
 </task_item>
 

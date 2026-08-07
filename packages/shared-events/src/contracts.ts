@@ -212,6 +212,19 @@ export interface CatalogVariantSyncedData {
    * of price/VAT ownership is phase 5 in the design doc, deliberately not
    * done here. */
   price: number;
+  /** Whether this SKU is subject to VAT — TSK-001 design doc Phase 5:
+   * Inventory now OWNS this fact (a catalog-master-data property, not a
+   * POS-checkout one). POS has no admin UI that ever edited its own local
+   * copy of this flag, so this sync is a pure handoff, not a conflict with
+   * any existing edit path. */
+  vat_applicable: boolean;
+  /** Mirrors Inventory's `Product.isStockTracked` (added phase 1/2 as
+   * groundwork, not yet synced down until phase 3) — lets POS's mirror
+   * record distinguish a real stock-tracked SKU from a made-to-order item
+   * with no discrete inventory unit. POS itself never models stock either
+   * way; this exists so a mirror row can be labeled correctly rather than
+   * defaulting every synced item to looking stock-tracked. */
+  stock_tracked: boolean;
   /** True when this variant no longer exists on the Inventory side (e.g.
    * deleted/discontinued) — POS should stop offering it, not just re-cache. */
   deleted?: boolean;
@@ -349,6 +362,8 @@ const DATA_VALIDATORS: Record<GritEventName, (d: unknown) => boolean> = {
     isNonEmptyString(d.product_name) &&
     isNonEmptyString(d.variant_name) &&
     isFiniteNumber(d.price) &&
+    typeof d.vat_applicable === "boolean" &&
+    typeof d.stock_tracked === "boolean" &&
     (d.deleted === undefined || typeof d.deleted === "boolean"),
   "manpower.shift_unassigned": (d) =>
     isRecord(d) &&

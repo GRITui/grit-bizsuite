@@ -9,6 +9,10 @@ const createProductSchema = z.object({
   description: z.string().optional(),
   // Grit pivot: published on inventory.threshold_breached events.
   supplierName: z.string().optional(),
+  // Grit BizSuite pivot (catalog-unification epic, phase-3 groundwork):
+  // lets made-to-order items skip real stock tracking. Defaults true so
+  // omitting it keeps today's behavior.
+  isStockTracked: z.boolean().default(true),
   initialVariant: z
     .object({
       sku: z.string().min(1),
@@ -48,7 +52,7 @@ export async function POST(request: NextRequest) {
     return apiError(parsed.error.issues[0]?.message ?? "Invalid product");
   }
 
-  const { name, description, supplierName, initialVariant } = parsed.data;
+  const { name, description, supplierName, isStockTracked, initialVariant } = parsed.data;
 
   try {
     const product = await db.$transaction(async (tx) => {
@@ -58,6 +62,7 @@ export async function POST(request: NextRequest) {
           name,
           description,
           supplierName,
+          isStockTracked,
           ...(initialVariant && {
             variants: {
               create: {

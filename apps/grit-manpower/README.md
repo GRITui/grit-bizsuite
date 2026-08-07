@@ -3,10 +3,15 @@
 Next.js 16 + Prisma 7 + Neon workforce-management app for the Grit BizSuite:
 employee records, shift scheduling, clock-in/out attendance, and payroll.
 
-Runs fully standalone: its own deploy, its own `DATABASE_URL`, its own staff
-login. **Deliberately not wired into the rest of the suite yet** — no
-`@grit/passport` SSO, no `@grit/shared-events` publishing/consuming. That's a
-scoped follow-up, not an oversight; see `AGENTS.md` at the repo root.
+Runs standalone: its own deploy, its own `DATABASE_URL`, its own staff login.
+Joined the suite's shared SSO and event bus: login mints both this app's own
+`grit_manpower_session` cookie and the shared `grit_passport` cookie
+(`@grit/passport`, `lib/auth.ts`), and it publishes `manpower.shift_unassigned`
+(`lib/events.ts`) whenever a shift is created or updated with no employee
+assigned. It has no entitlement tier of its own — sessions it originates are
+stamped as the full `SCALE` tier so other apps' `hasFeatureAccess` checks
+never wrongly deny it — and no durable event outbox yet (publishing is
+best-effort webhook delivery only); see `AGENTS.md` at the repo root.
 
 ## Domains
 

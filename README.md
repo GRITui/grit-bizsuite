@@ -30,17 +30,18 @@ grit-bizsuite/
 | --- | --- | --- |
 | **grit-pos** | Next.js 16 · Prisma 7 · Neon · Stripe | Hospitality features (QR tables, pickup links) abstracted into optional **plugin traits**; product **variant matrix** (child SKUs + attribute axes); **offline-first** IndexedDB tender/quick-sale queue with idempotent sync; emits `transaction.completed` and `pos.velocity_surge` |
 | **grit-inventory** | Next.js 16 · Prisma 7 · Neon | **Multi-location** per-store stock (`StoreStock`) with internal **transfer orders**; **FIFO** cost lots + COGS report; **barcode** keyboard-wedge interception; consumes `transaction.completed` (auto-decrement), emits `inventory.threshold_breached` |
-| **grit-taskboard** | No-build JS PWA · Vercel functions · Neon | **Ops kanban** (`todo / in_progress / review / done`) added to the PWA; webhook intake auto-creates *"Restock SKU: X from Supplier Y immediately"* and *"Open auxiliary billing terminal lines"* cards; emits `task.completed` |
+| **grit-taskboard** | No-build JS PWA · Vercel functions · Neon | **Ops kanban** (`todo / in_progress / review / done`) added to the PWA; webhook intake auto-creates *"Restock SKU: X from Supplier Y immediately"*, *"Open auxiliary billing terminal lines"*, and *"Cover \<role\> shift"* cards (`manpower.shift_unassigned`); emits `task.completed`. **"Continue with Grit BizSuite" SSO** (`api/auth-sso.js`) — an additional login path, alongside this app's own username/password, that resolves a verified `grit_passport` token to a shadow account via the existing `team_members`/`grit_org_links` tables (no new schema) |
 | **grit-reports** | Static vanilla JS · Vercel functions | Excel Group & Analyze tool + **cross-app aggregator**: financial margins (POS revenue − inventory COGS) and labor efficiency (POS volume ÷ task completion speed), gated by the `custom_reporting` addon |
-| **grit-manpower** | Next.js 16 · Prisma 7 · Neon | Employee records (HR profiles + documents), shift **scheduling** per location, **clock-in/out** attendance, and **payroll** generation from time-entry hours + wage rates. **Standalone**: its own auth, no SSO or event-bus wiring yet — a deliberate scope boundary for this first pass, not a gap to silently close |
+| **grit-manpower** | Next.js 16 · Prisma 7 · Neon | Employee records (HR profiles + documents), shift **scheduling** per location, **clock-in/out** attendance, and **payroll** generation from time-entry hours + wage rates. Mints the shared `grit_passport` cookie on login (dual-cookie with its own legacy session) and emits `manpower.shift_unassigned` whenever a shift is created/updated with no employee assigned — best-effort delivery only, no durable outbox yet |
 
 ## Event flow
 
 ```
 grit-pos ──transaction.completed──────────▶ grit-inventory ──inventory.threshold_breached──▶ grit-taskboard
-   │                                             │                                               │
-   └──pos.velocity_surge─────────────────────────┼───────────────────────────────────────────────┤
+   │                                             │                                               │      ▲
+   └──pos.velocity_surge─────────────────────────┼───────────────────────────────────────────────┤      │
                                                  └──inventory.transfer_completed──▶ grit-reports ◀┴──task.completed
+grit-manpower ──manpower.shift_unassigned────────────────────────────────────────────────────────────────┘
 ```
 
 Transport: HMAC-signed internal webhooks (`x-grit-signature: v1=hex(hmac-sha256("<ts>.<body>"))`,
@@ -60,13 +61,17 @@ Subscribers are configured per event: `GRIT_SUBSCRIBERS_<EVENT_NAME>` (comma-sep
 
 `hasFeatureAccess()` / `appsForSession()` in `@grit/passport` drive both UI
 navigation (shared `AppSwitcher`) and API-side gates (`assertFeature`, 403).
-grit-manpower is **not** part of this tier system yet — it has its own
-separate login and no `@grit/passport` entitlement gating (see its README).
-It links to/from the other four apps as a plain, ungated URL instead of an
-`AppSwitcher` entry (`apps/grit-taskboard/app/index.html`'s and
-`apps/grit-reports/excel-group-analyze/app.js`'s suite-nav blocks, and
-grit-manpower's own layout) — the same treatment grit-taskboard already gets
-for the same reason (no shared session to gate on).
+grit-manpower is **not** part of this tier system yet — it now mints/verifies
+the shared `grit_passport` cookie (`@grit/passport`) for suite-wide SSO, but
+has no entitlement gating of its own (no LITE/GROWTH/SCALE distinctions;
+sessions it originates are stamped as the full `SCALE` tier precisely so
+other apps' `hasFeatureAccess` checks never wrongly deny it — see its
+README). It links to/from the other four apps as a plain, ungated URL
+instead of an `AppSwitcher` entry (`apps/grit-taskboard/app/index.html`'s
+and `apps/grit-reports/excel-group-analyze/app.js`'s suite-nav blocks, and
+grit-manpower's own layout) — the same treatment grit-taskboard already gets,
+since `buildAppNav`'s tier-gating logic assumes every entry maps onto a real
+LITE/GROWTH/SCALE answer, which manpower doesn't have.
 
 ## Development
 

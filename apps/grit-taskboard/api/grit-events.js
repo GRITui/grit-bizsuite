@@ -29,10 +29,14 @@ function json(body, status) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-// Only these two events ever produce an ops_tasks card — see
+// Only these events ever produce an ops_tasks card — see
 // packages/shared-events README's event catalogue ("grit-taskboard" is only
-// listed as a consumer for these two).
-const HANDLED_EVENTS = new Set(['inventory.threshold_breached', 'pos.velocity_surge']);
+// listed as a consumer for these).
+const HANDLED_EVENTS = new Set([
+  'inventory.threshold_breached',
+  'pos.velocity_surge',
+  'manpower.shift_unassigned',
+]);
 
 function mintTaskId() {
   return typeof crypto.randomUUID === 'function'
@@ -55,6 +59,17 @@ function taskFromEvent(envelope) {
       locationId: data.location_id,
     };
   }
+  if (event === 'manpower.shift_unassigned') {
+    const role = data.role || 'shift';
+    const when = formatShiftWindow(data.starts_at, data.ends_at);
+    return {
+      title: `Cover ${role} shift${when ? ` — ${when}` : ''}`,
+      description: `Location ${data.location_id}: shift ${data.shift_id} (${role}) has no employee assigned yet.`,
+      priority: 'normal',
+      triggeredBy: 'system_manpower',
+      locationId: data.location_id,
+    };
+  }
   // event === 'pos.velocity_surge'
   return {
     title: 'Open auxiliary billing terminal lines',
@@ -63,6 +78,18 @@ function taskFromEvent(envelope) {
     triggeredBy: 'system_pos',
     locationId: data.location_id,
   };
+}
+
+function formatShiftWindow(startsAt, endsAt) {
+  try {
+    const start = new Date(startsAt);
+    if (Number.isNaN(start.getTime())) return '';
+    const dateStr = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const startStr = start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `${dateStr} ${startStr}`;
+  } catch {
+    return '';
+  }
 }
 
 // Factory shape so tests can swap in an in-memory fake sql without a live

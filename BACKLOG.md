@@ -181,20 +181,39 @@ tenant-wide switch.
 
 ## P1 — documented design decisions worth revisiting
 
-- ~~**Full SSO is still a bridge, not real.**~~ **Shipped for grit-pos +
-  grit-inventory.** Both now mint/verify the real shared `grit_passport`
+- ~~**Full SSO is still a bridge, not real.**~~ **Shipped for all five apps.**
+  grit-pos + grit-inventory mint/verify the real shared `grit_passport`
   cookie via `@grit/passport`'s existing `session.ts` primitives, replacing
   each app's separate `horeca_session`/`invento_session` cookie —
   `lib/passportBridge.ts`'s own doc comment had named this as the eventual
   next step. `grit-reports` already consumed the shared cookie (built
-  earlier). **`grit-taskboard` is deliberately excluded** — its account
-  model (Stripe billing, teams, `cuid`-based users) is structurally
-  unrelated to the `organizationId`/`Tenant` model the other three apps
-  share; forcing it in would be a fake unification. Needs its own dedicated
-  design pass whenever taskboard joins the SSO story for real. Cross-domain
-  cookie sharing itself (all apps under one root domain) is an infra step,
-  not code — hasn't been verified live since only `grit-pos` is deployed
-  today.
+  earlier). **grit-manpower** now mints both its legacy
+  `grit_manpower_session` cookie and the shared `grit_passport` cookie on
+  login (`lib/auth.ts`'s `signGritSession`/dual-cookie `createSession`),
+  mapping its own `owner`/`admin`/`staff` roles onto the shared
+  `owner`/`manager`/`staff` vocabulary and stamping a fixed `SCALE` tier
+  (it has no tier concept of its own, so it must never cause a false
+  entitlement denial in another app). **grit-taskboard**, previously
+  "deliberately excluded" because its account model (Stripe billing, teams,
+  `cuid`-based users) is structurally unrelated to the shared
+  `organizationId`/`Tenant` model — owner explicitly chose to build this
+  anyway ("design + build taskboard SSO too") rather than skip it. Solved
+  as an *additional* login path, not a replacement: `POST /api/auth-sso`
+  (`api/auth-sso.js`) verifies a pasted `grit_passport` token (hand-rolled
+  HS256 JWT verify in `lib/gritPassport.js`, since this no-build app can't
+  depend on `jose`) and resolves it to a taskboard account via a new
+  `users.grit_user_id` column — first login for a `userId` mints a
+  password-less "shadow" account (same shape as existing LINE-login
+  accounts), joining the existing `team_members`/`grit_org_links` tables
+  (no new schema needed there) so a second person from the same
+  organization lands on the first person's board instead of starting a
+  separate one. "Continue with Grit BizSuite" added to `login.html`. Live
+  end-to-end verified: same-`userId` repeat login resolves to the same
+  account; a different person, same org, joins via `team_members` under
+  the existing owner. Cross-domain cookie sharing itself (all apps under
+  one root domain, so the browser actually carries the session between
+  apps without a manual token paste) is still an infra step, not code —
+  hasn't been verified live since only `grit-pos` is deployed today.
 - ~~**POS's synthetic SKU fallback**~~ **Real fix shipped (approach 2, not
   just the approach-3 stopgap).** A new `catalog.variant_synced` event lets
   Inventory push its canonical `Variant` id to POS on create/rename/delete;
@@ -218,8 +237,18 @@ tenant-wide switch.
 - ~~**Parcel labels are decorative, not scannable.**~~ **Shipped.** Replaced
   the self-drawn `charCodeAt % 4` bar pattern with a real, vendored Code
   128 (Subset B) encoder (`apps/grit-inventory/src/lib/barcode/code128.ts`)
-  — no carrier integration yet, that remains open, but the label itself now
-  encodes a real scannable symbology.
+  — the label itself encodes a real scannable symbology. **Carrier
+  integration also now shipped** (mock, per owner's "pluggable interface +
+  a mock carrier" choice): `src/lib/carrier/` defines a `CarrierAdapter`
+  interface (`createShipment`/`getTrackingStatus`) selected at runtime by
+  `CARRIER_PROVIDER` (defaults to `mock`, never throws for a missing real
+  adapter's credentials), a deterministic `mockCarrier.ts` that derives
+  shipment status from elapsed time with no external calls, and
+  `GET /api/parcel-labels/[id]/tracking` + an admin tracking-status chip.
+  `ParcelLabel` gained `carrierTrackingId`/`carrierStatus`/
+  `carrierStatusUpdatedAt` (additive migration). Wiring a real carrier
+  (FedEx/UPS/etc.) later is a new `src/lib/carrier/<name>Carrier.ts` file
+  plus one switch case in `index.ts` — no call-site changes needed.
 - **Pick/pack/label mutations have no ADMIN gate**, unlike
   groups/locations/promotions (matches the existing `/transition` and
   `/payments` routes' "any staff on the floor" model). Tried adding an
@@ -245,7 +274,35 @@ tenant-wide switch.
   onboarding included) was removed — the app is now ops-kanban task
   tracking only, with no persona concept left to have options for.
 
-### POS ↔ Inventory SKU alignment (scoping)
+### ~~POS ↔ Inventory SKU alignment~~ **Approach 2 shipped, Phases 1-2 of 5.**
+
+Owner picked approach 2 (real shared identity, Inventory as source of truth)
+over approaches 1/3 below — see `loop/design-docs/TSK-001-catalog-unification-design.md`
+for the full design and its five-phase rollout plan. Phases 1-2 are built:
+`CatalogVariantSyncedData` (`packages/shared-events/src/contracts.ts`) now
+carries `product_id`/`variant_name`/`price` alongside the existing fields;
+grit-inventory's three emit sites (`variants/[id]/route.ts`,
+`products/[id]/variants/route.ts`) populate them; grit-pos's webhook handler
+(`app/api/events/grit/route.ts`) mirror-creates a `Product`/`Variant` row
+on a sync-miss instead of the old silent no-op, transactionally, grouping
+repeat variants under the same mirrored product and keying the join on the
+new `Variant.inventoryVariantId` column. grit-inventory also gained
+`Product.isStockTracked` (admin-togglable, skips low-stock alerts) as
+groundwork for Phase 3's made-to-order item type.
+
+**Still open** — Phase 3 (backfill/reconcile existing POS-only rows, plus
+using `isStockTracked` for genuinely non-inventory items like a
+made-to-order coffee), Phase 4 (denormalize `productName`/`variantName`/
+`sku` onto `OrderLine` at creation time — today's mirror-driven renames can
+retroactively change how a *historical* order displays, the same failure
+mode `unitPrice`'s snapshot was built to avoid), Phase 5 (move
+`Variant.vatApplicable` ownership to Inventory, verify promotion matching
+post-cutover). One known gap from this pass: a multi-variant mirror product
+isn't deactivated when only one sibling variant is deleted (documented
+inline in the POS handler, not fixed). Original problem statement and the
+three candidate approaches kept below for context.
+
+### POS ↔ Inventory SKU alignment (scoping) — original problem statement
 
 **Problem:** `eventItemSku` (`apps/grit-pos/lib/events.ts:86-88`) resolves an
 order line's SKU as `line.variantSku ?? \`PRD-${line.productId}\``, and all

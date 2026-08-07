@@ -185,11 +185,14 @@ reads `GRIT_SESSION_SECRET` **only**; see that file's header and
 `verifyPassportSession()` always returns `null` rather than silently reusing
 `SESSION_SECRET`.
 
-Not wired into any endpoint's auth yet (`api/grit-events.js` is
-HMAC-authenticated and has no session to verify; `api/ops-tasks.js` keeps
-its own `lib/auth.js` bearer scheme plus the `GRIT_SERVICE_TOKEN` service
-path above) — exported ahead of use for a future "Continue with Grit
-Passport" UI login path.
+Wired into `api/auth-sso.js`'s `verifyPassportToken()` — "Continue with
+Grit BizSuite" on `app/login.html`, resolving a verified session into a
+taskboard account (minting a password-less shadow account plus a
+`team_members`/`grit_org_links` row on first login; see that file's header
+for the full identity-resolution rules). `api/grit-events.js` still has no
+use for this (HMAC-authenticated, no session to verify) and
+`api/ops-tasks.js` still keeps its own `lib/auth.js` bearer scheme plus the
+`GRIT_SERVICE_TOKEN` service path above.
 
 ### 6. Tests
 

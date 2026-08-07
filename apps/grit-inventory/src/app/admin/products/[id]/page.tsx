@@ -61,7 +61,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         description={product.description ?? undefined}
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <EditProductButton product={{ id: product.id, name: product.name, description: product.description }} />
+            <EditProductButton
+              product={{
+                id: product.id,
+                name: product.name,
+                description: product.description,
+                isStockTracked: product.isStockTracked,
+              }}
+            />
             <ArchiveProductButton product={{ id: product.id, isActive: product.isActive }} />
           </div>
         }

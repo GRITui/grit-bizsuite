@@ -15,8 +15,11 @@ export default async function DashboardPage() {
     // Per-store stock vs. its own reorder threshold — Variant.quantityOnHand
     // is only the tenant-wide aggregate across stores, so checking it here
     // would mask a critically low store behind a healthy one elsewhere.
+    // Grit BizSuite pivot: exclude made-to-order products (isStockTracked
+    // false) up front — their stock number isn't meaningful, so they should
+    // never surface here as "low stock".
     db.storeStock.findMany({
-      where: { tenantId, variant: { isActive: true } },
+      where: { tenantId, variant: { isActive: true, product: { isStockTracked: true } } },
       include: { variant: { include: { product: true } }, store: true },
       orderBy: { quantityOnHand: "asc" },
     }),

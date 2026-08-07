@@ -111,6 +111,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         inventory_variant_id: variant.id,
         sku: variant.sku,
         product_name: existing.product.name,
+        product_id: existing.product.id,
+        variant_name: variant.name,
+        price: Number(variant.price),
       });
     }
 
@@ -148,6 +151,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     inventory_variant_id: existing.id,
     sku: existing.sku,
     product_name: existing.product.name,
+    product_id: existing.product.id,
+    variant_name: existing.name,
+    price: Number(existing.price),
     deleted: true,
   });
 

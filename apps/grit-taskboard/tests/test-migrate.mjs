@@ -13,10 +13,16 @@ const assert = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FA
 const stmts = splitSqlStatements(SCHEMA_SQL);
 assert(stmts.length > 10, `splitter yields a full statement set (got ${stmts.length})`);
 assert(stmts.every(s => !s.startsWith('--')), 'no comment-only statements survive');
+// Two do-blocks as of the SSO pass (users_plan_check/users_subscription_status_check
+// backfill, and the ops_tasks triggered_by-check widen for 'system_manpower') —
+// this count grows whenever schema-core.sql gains another idempotent
+// constraint-widen block; what actually matters is that the splitter treats
+// EACH one as a single statement despite its internal semicolons, not the
+// exact count.
 const dollarStmts = stmts.filter(s => s.includes('$$'));
-assert(dollarStmts.length === 1, `exactly one dollar-quoted do-block (got ${dollarStmts.length})`);
-assert(dollarStmts[0].trimStart().startsWith('do $$') && dollarStmts[0].includes('end $$;'),
-  'the do-block survives as ONE statement despite internal semicolons');
+assert(dollarStmts.length === 2, `expected dollar-quoted do-blocks (got ${dollarStmts.length})`);
+assert(dollarStmts.every(s => s.trimStart().startsWith('do $$') && s.includes('end $$;')),
+  'every do-block survives as ONE statement despite internal semicolons');
 assert(stmts.some(s => s.startsWith('create table if not exists team_members')), 'team_members create present');
 assert(stmts.some(s => s.includes('add column if not exists team_seats')), 'users alter present');
 // Every non-final statement ends with ; and none is empty

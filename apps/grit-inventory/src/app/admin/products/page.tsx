@@ -133,9 +133,12 @@ export default async function ProductsPage({
                   0
                 );
                 const prices = product.variants.map((v) => Number(v.price));
-                const lowStock = product.variants.some(
-                  (v) => quantityOf(v.id, v.quantityOnHand) <= v.reorderThreshold
-                );
+                // Grit BizSuite pivot: a made-to-order product (isStockTracked
+                // false) has no meaningful stock number, so it never shows as
+                // "low stock" — see AGENTS.md catalog-unification epic.
+                const lowStock =
+                  product.isStockTracked &&
+                  product.variants.some((v) => quantityOf(v.id, v.quantityOnHand) <= v.reorderThreshold);
                 return (
                   <tr
                     key={product.id}

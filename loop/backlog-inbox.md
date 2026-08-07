@@ -7,7 +7,7 @@ through triage, sprint planning, and execution.
 <task_item>
   <id>TSK-001</id>
   <source>OWNER_POPUP</source>
-  <status>NEEDS_OWNER_REVIEW</status>
+  <status>READY_FOR_PM</status>
   <priority>HIGH</priority>
   <title>Design: Inventory becomes single source of truth for the shared product catalog</title>
   <description>
@@ -64,6 +64,32 @@ through triage, sprint planning, and execution.
     for explicit owner decision (see doc) — status set to NEEDS_OWNER_REVIEW,
     not closed: no build task should be created from this until the owner
     signs off on the recommendation and answers those questions.
+
+    **Owner decision (architect pass, local-app-agent-squad-qsw15r session):**
+    owner explicitly chose "Inventory becomes source of truth" (the doc's
+    recommended option) when the roadmap's "Unified product catalog" item
+    was picked up for this build pass. Phase 1 + Phase 2 shipped:
+    `CatalogVariantSyncedData` (packages/shared-events/src/contracts.ts)
+    extended with `product_id`/`variant_name`/`price`; grit-inventory's
+    three emit sites updated to populate them; grit-inventory gained
+    `Product.isStockTracked` (additive migration, admin toggle, low-stock
+    logic skips non-tracked products) as groundwork for Phase 3's
+    made-to-order item type. grit-pos's webhook handler
+    (`app/api/events/grit/route.ts`) now mirror-creates a `Product`/
+    `Variant` row on a sync-miss (transactional find-or-create under a
+    per-tenant "Synced from Inventory" category) instead of the old no-op,
+    with a new `Variant.inventoryVariantId` join column. Verified live
+    against real DB rows (new product creation, repeat-variant grouping,
+    deletion handling) plus full tsc/lint/build/test on both apps.
+
+    Remaining, NOT done in this pass (still open, scoped in the design doc):
+    Phase 3 (backfill/reconcile existing POS-only rows — explicitly flagged
+    by the builder as future work, not attempted), Phase 4 (closing the
+    `OrderLine` name/sku snapshot gap), Phase 5 (VAT/promotion ownership
+    handoff). One known limitation from this pass: a multi-variant mirror
+    product isn't deactivated when only one sibling variant is deleted
+    (documented in the POS handler, not fixed). Status stays READY_FOR_PM,
+    not closed — Phases 3-5 need their own build task(s).
   </researcher_notes>
 </task_item>
 

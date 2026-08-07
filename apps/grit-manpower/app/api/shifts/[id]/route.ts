@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AuthError, requireTenantId } from "@/lib/tenant";
+import { publishShiftUnassigned } from "@/lib/events";
 
 const SHIFT_STATUSES = ["scheduled", "published", "completed", "cancelled"] as const;
 type ShiftStatusInput = (typeof SHIFT_STATUSES)[number];
@@ -80,6 +81,16 @@ export async function PATCH(
         employee: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+
+    if (shift.employeeId === null) {
+      await publishShiftUnassigned(tenantId, {
+        shift_id: shift.id,
+        location_id: shift.locationId,
+        role: shift.role,
+        starts_at: shift.startsAt.toISOString(),
+        ends_at: shift.endsAt.toISOString(),
+      });
+    }
 
     return NextResponse.json({ shift });
   } catch (err) {

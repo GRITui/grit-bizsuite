@@ -15,6 +15,7 @@ export const EVENT_NAMES = [
   "promotion.updated",
   "discount_policy.updated",
   "catalog.variant_synced",
+  "manpower.shift_unassigned",
 ] as const;
 
 export type GritEventName = (typeof EVENT_NAMES)[number];
@@ -190,8 +191,27 @@ export type DiscountPolicyUpdatedEvent = GritEventEnvelope<
  */
 export interface CatalogVariantSyncedData {
   inventory_variant_id: string;
+  /** Inventory's canonical Product id — stable across all of a product's
+   * variants, so POS can group synced variants under one mirror Product
+   * (Product.inventoryProductId) instead of creating a duplicate per
+   * variant. Added for catalog-unification phase 2 (mirror-first creation
+   * on sync miss) — see loop/design-docs/TSK-001-catalog-unification-design.md. */
+  product_id: string;
   sku: string;
   product_name: string;
+  /** Variant-level display name, e.g. "Black / L" — was missing before
+   * phase 2; product_name alone isn't enough to label a mirror-created
+   * Variant distinctly from its siblings. */
+  variant_name: string;
+  /** Inventory's current sell price for this variant. Phase-2 mirror
+   * creation uses this as-is for the new Product's basePrice. NOTE: this is
+   * a placeholder pricing decision, not a resolved one — Inventory's price
+   * has no VAT concept today (POS's does), so a mirror-created product
+   * inherits POS's default vatApplicable=true/VAT-inclusive treatment on a
+   * number that wasn't necessarily set with VAT in mind. Real reconciliation
+   * of price/VAT ownership is phase 5 in the design doc, deliberately not
+   * done here. */
+  price: number;
   /** True when this variant no longer exists on the Inventory side (e.g.
    * deleted/discontinued) — POS should stop offering it, not just re-cache. */
   deleted?: boolean;
@@ -199,6 +219,30 @@ export interface CatalogVariantSyncedData {
 export type CatalogVariantSyncedEvent = GritEventEnvelope<
   "catalog.variant_synced",
   CatalogVariantSyncedData
+>;
+
+/**
+ * Emitted by Grit Manpower when a shift is created (or edited) with no
+ * employee assigned — the workforce-side analogue of
+ * `inventory.threshold_breached`: a real gap that needs a human to act on,
+ * surfaced as a Taskboard card instead of staying buried in a schedule
+ * screen. Re-published (not deduped away) on every save that leaves the
+ * shift unassigned, same as Inventory re-publishes on every breach; Taskboard
+ * dedupes on `source_event_id` the same way it already does for Inventory's
+ * event.
+ */
+export interface ManpowerShiftUnassignedData {
+  shift_id: string;
+  location_id: string;
+  /** Free-text role label as entered on the shift (e.g. "Cashier") — Manpower
+   * has no canonical role taxonomy today, so this is passed through as-is. */
+  role: string | null;
+  starts_at: string;
+  ends_at: string;
+}
+export type ManpowerShiftUnassignedEvent = GritEventEnvelope<
+  "manpower.shift_unassigned",
+  ManpowerShiftUnassignedData
 >;
 
 export type GritEvent =
@@ -209,7 +253,8 @@ export type GritEvent =
   | TaskCompletedEvent
   | PromotionUpdatedEvent
   | DiscountPolicyUpdatedEvent
-  | CatalogVariantSyncedEvent;
+  | CatalogVariantSyncedEvent
+  | ManpowerShiftUnassignedEvent;
 
 /* ------------------------------------------------------------------ */
 /* Runtime validation (dependency-free so no-build JS apps can mirror it) */
@@ -299,9 +344,19 @@ const DATA_VALIDATORS: Record<GritEventName, (d: unknown) => boolean> = {
   "catalog.variant_synced": (d) =>
     isRecord(d) &&
     isNonEmptyString(d.inventory_variant_id) &&
+    isNonEmptyString(d.product_id) &&
     isNonEmptyString(d.sku) &&
     isNonEmptyString(d.product_name) &&
+    isNonEmptyString(d.variant_name) &&
+    isFiniteNumber(d.price) &&
     (d.deleted === undefined || typeof d.deleted === "boolean"),
+  "manpower.shift_unassigned": (d) =>
+    isRecord(d) &&
+    isNonEmptyString(d.shift_id) &&
+    isNonEmptyString(d.location_id) &&
+    (d.role === null || isNonEmptyString(d.role)) &&
+    isNonEmptyString(d.starts_at) &&
+    isNonEmptyString(d.ends_at),
 };
 
 export function isGritEventName(v: unknown): v is GritEventName {

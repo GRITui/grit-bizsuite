@@ -61,6 +61,15 @@
     if (r.ok) setToken(r.data.token);
     return r;
   }
+  // "Continue with Grit BizSuite" — token is a verified grit_passport JWT
+  // (see api/auth-sso.js). Same shape as login()/register(): sets the
+  // backend bearer token on success, distinct from this app's own
+  // username/password accounts.
+  async function ssoLogin({ token }) {
+    const r = await apiFetch('/api/auth-sso', { method: 'POST', auth: false, body: { token } });
+    if (r.ok) setToken(r.data.token);
+    return r;
+  }
   async function session() {
     if (!getToken()) return { ok: false, status: 401, data: {} };
     return apiFetch('/api/auth-session');
@@ -121,7 +130,7 @@
   }
 
   window.SidekickBackend = {
-    isEnabled, register, login, session, logout,
+    isEnabled, register, login, ssoLogin, session, logout,
     opsTasksList, opsTaskCreate, opsTaskUpdate, opsTaskDelete,
   };
 })();

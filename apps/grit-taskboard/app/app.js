@@ -231,14 +231,43 @@ async function submitAuth() {
     location.href = './';
   }
 }
+// "Continue with Grit BizSuite" — token is a pasted grit_passport JWT (see
+// login.html's auth-sso field). No cross-domain cookie-sharing infra exists
+// yet for a live token handoff (BACKLOG.md's suite-wide-switcher entry), so
+// this mirrors grit-reports' own paste-the-JWT pattern for the same reason.
+// On success the account is entirely server-side (api/auth-sso.js) — there
+// is no local IndexedDB user row to look up, so the session marker carries
+// enough to redisplay identity without another round trip.
+async function submitSsoAuth() {
+  const tokenEl = document.getElementById('auth-sso-token');
+  const token = tokenEl ? tokenEl.value.trim() : '';
+  if (!token) { authError('Paste your Grit BizSuite session token.'); return; }
+  const r = await SidekickBackend.ssoLogin({ token });
+  if (!r.ok) { authError((r.data && r.data.error) || 'Could not sign in with Grit BizSuite.'); return; }
+  const { cuid, username, firstName } = r.data.user;
+  currentUser = {id: 0, username, firstName: firstName || ''};
+  isGuest = false;
+  localStorage.setItem(SESSION_KEY, 'sso:' + cuid);
+  localStorage.setItem('sidekick_sso_user', JSON.stringify({username, firstName: firstName || ''}));
+  sessionStorage.setItem('sidekick_post_login_toast', 'Welcome' + (firstName ? ', ' + firstName : '') + '!');
+  location.href = './';
+}
 async function logout() {
   localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem('sidekick_sso_user');
+  SidekickBackend.logout();
   sessionStorage.setItem('sidekick_post_login_toast', 'Logged out.');
   location.href = 'login.html';
 }
 async function restoreSession() {
   const raw = localStorage.getItem(SESSION_KEY);
   if (raw === 'guest') { isGuest = true; currentUser = {id: 0, username: 'Guest'}; return true; }
+  if (typeof raw === 'string' && raw.startsWith('sso:')) {
+    const stored = JSON.parse(localStorage.getItem('sidekick_sso_user') || 'null');
+    currentUser = {id: 0, username: (stored && stored.username) || 'Grit BizSuite', firstName: (stored && stored.firstName) || ''};
+    isGuest = false;
+    return true;
+  }
   const uid = parseInt(raw);
   if (uid) {
     const u = (await dbAll('users')).find(x => x.id === uid);

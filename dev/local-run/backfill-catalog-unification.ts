@@ -243,6 +243,22 @@ async function processTenant(tenantId: string, summary: Summary) {
 async function main() {
   console.log(dryRun ? "DRY RUN — no writes will be made\n" : "LIVE RUN — writes will be made\n");
 
+  // A variant with `tenantId: null` (the literal "neither tenantId nor sku"
+  // case apps/grit-pos/prisma/schema.prisma's own Variant.tenantId doc
+  // comment describes) can never be picked up by the per-tenant loop below
+  // — there is no organization id to attribute it to, and guessing one
+  // would be a real data-integrity call this script has no business making
+  // silently. Surfaced as a loud warning instead of a silent gap; fixing
+  // one requires a human to assign it a tenant first (a separate, manual
+  // data-quality fix, not something this reconciliation pass can resolve).
+  const tenantlessCount = await pos.variant.count({ where: { tenantId: null } });
+  if (tenantlessCount > 0) {
+    console.warn(
+      `\n⚠ ${tenantlessCount} POS Variant row(s) have tenantId: null and cannot be reconciled by this script — ` +
+        `they need a tenant assigned by hand first. Not counted in the summary below.\n`,
+    );
+  }
+
   const tenants = onlyOrgId
     ? await pos.tenant.findMany({ where: { id: onlyOrgId } })
     : await pos.tenant.findMany();

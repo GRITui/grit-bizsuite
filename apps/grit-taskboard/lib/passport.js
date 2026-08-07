@@ -5,10 +5,17 @@
  * functions — same rationale as lib/gritEvents.js mirroring
  * packages/shared-events (see that file's header and this monorepo's
  * AGENTS.md): this app has no build step and can't import TypeScript
- * source, so the JWT is hand-verified with node:crypto's Web Crypto surface
- * (`webcrypto`), the same primitive lib/gritEvents.js and
- * apps/grit-reports/lib/passportVerify.js both use for their own
- * HMAC-family verification instead of pulling in `jose`.
+ * source, so the JWT is hand-verified with the GLOBAL `crypto` object's Web
+ * Crypto surface — available in both this app's Node.js functions and its
+ * Edge functions — the same primitive lib/auth.js already uses for its own
+ * session signing. Deliberately NOT `node:crypto`'s `webcrypto` export
+ * (a Node-only module specifier): this file is imported by
+ * `api/auth-sso.js`, which runs on the Edge runtime
+ * (`export const config = { runtime: 'edge' }`), and Vercel's Edge bundler
+ * statically rejects `node:*` imports at deploy time regardless of whether
+ * the importing code path ever actually runs. Same reasoning for using
+ * `atob`/`TextDecoder` below instead of `Buffer` (also Node-only) —
+ * matches `lib/auth.js`'s own base64url helpers exactly.
  *
  * Wire contract (must stay identical to packages/passport/src/session.ts —
  * if that file's session shape changes, update this file to match):
@@ -44,8 +51,6 @@
  * shape) — exported now so that work doesn't have to re-derive the wire
  * format from scratch.
  */
-import { webcrypto } from 'node:crypto';
-
 export const GRIT_PASSPORT_COOKIE = 'grit_passport';
 
 const ROLES = ['owner', 'manager', 'staff'];
@@ -60,14 +65,17 @@ const TIER_RANK = { LITE: 0, GROWTH: 1, SCALE: 2 };
 // TypeScript source. Keep in sync by hand with entitlements.ts.
 const TASKBOARD_AUTOMATION_MIN_TIER = 'SCALE';
 
-function base64UrlToBuffer(segment) {
+function base64UrlToBytes(segment) {
   const padded = segment.replace(/-/g, '+').replace(/_/g, '/');
   const padLen = (4 - (padded.length % 4)) % 4;
-  return Buffer.from(padded + '='.repeat(padLen), 'base64');
+  const bin = atob(padded + '='.repeat(padLen));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 
 function decodeJsonSegment(segment) {
-  return JSON.parse(base64UrlToBuffer(segment).toString('utf8'));
+  return JSON.parse(new TextDecoder().decode(base64UrlToBytes(segment)));
 }
 
 // GRIT_SESSION_SECRET only — see file header for why this mirror does NOT
@@ -77,7 +85,7 @@ function getPassportSecret() {
 }
 
 async function importHmacKey(secret) {
-  return webcrypto.subtle.importKey(
+  return crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
@@ -115,7 +123,7 @@ export async function verifyPassportToken(token) {
 
   let signature;
   try {
-    signature = base64UrlToBuffer(sigSeg);
+    signature = base64UrlToBytes(sigSeg);
   } catch {
     return null;
   }
@@ -130,7 +138,7 @@ export async function verifyPassportToken(token) {
   const signingInput = new TextEncoder().encode(`${headerSeg}.${payloadSeg}`);
   let valid = false;
   try {
-    valid = await webcrypto.subtle.verify('HMAC', key, signature, signingInput);
+    valid = await crypto.subtle.verify('HMAC', key, signature, signingInput);
   } catch {
     return null;
   }

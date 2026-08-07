@@ -161,9 +161,15 @@ best-effort (fire-and-forget, same `.catch(() => {})` posture every other
 `lib/passport.js` is a plain-JS mirror of `@grit/passport`'s session
 verification (`packages/passport/src/session.ts`) — same "hand-mirror
 because this app has no build step" rationale as `lib/gritEvents.js`
-mirroring `packages/shared-events`, and the same `node:crypto` `webcrypto`
-technique `apps/grit-reports/lib/passportVerify.js` uses for its own JWT
-verification (no `jose` dependency needed). Exports:
+mirroring `packages/shared-events`. Verifies via the GLOBAL `crypto` object's
+Web Crypto surface (`crypto.subtle`), never `node:crypto`'s `webcrypto`
+export or `Buffer` — both are Node-only and this file is imported by
+`api/auth-sso.js`, which runs on the Edge runtime; Vercel's Edge bundler
+statically rejects `node:*` imports at deploy time. Same technique
+`lib/auth.js` and `apps/grit-reports/lib/passportVerify.js` both already use
+for their own JWT/HMAC verification (no `jose` dependency needed;
+`passportVerify.js`'s own header names this exact Edge-runtime pitfall).
+Exports:
 
 - `verifyPassportSession(req)` — resolves the `GritSession` from a Fetch API
   `Request`'s `Authorization: Bearer <jwt>` header or `grit_passport`

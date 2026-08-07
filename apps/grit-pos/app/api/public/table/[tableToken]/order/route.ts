@@ -47,8 +47,13 @@ function serializeOrder(
 ) {
   const lines = order.lines.map((line) => ({
     id: line.id,
-    productName: line.product.name,
-    variantName: line.variant?.name ?? null,
+    // Prefer the line-creation-time snapshot (see OrderLine.productNameSnapshot's
+    // doc comment, prisma/schema.prisma) so a later Inventory-driven catalog
+    // rename never changes how a historical line reads. Falls back to the
+    // live join only for lines created before this migration, which have no
+    // snapshot.
+    productName: line.productNameSnapshot ?? line.product.name,
+    variantName: line.variantNameSnapshot ?? line.variant?.name ?? null,
     quantity: line.quantity,
     unitPrice: Number(line.unitPrice),
     addOns: line.addOns.map((a) => ({ name: a.addOn.name, price: Number(a.price) })),
@@ -178,6 +183,9 @@ export async function POST(
     unitPrice: InstanceType<typeof Prisma.Decimal>;
     lineTotal: InstanceType<typeof Prisma.Decimal>;
     addOns: { addOnId: string; price: InstanceType<typeof Prisma.Decimal> }[];
+    productNameSnapshot: string;
+    variantNameSnapshot: string | null;
+    skuSnapshot: string | null;
   };
 
   const validatedLines: ValidatedLine[] = [];
@@ -221,6 +229,11 @@ export async function POST(
       unitPrice,
       lineTotal,
       addOns: selectedAddOns.map((addOn) => ({ addOnId: addOn!.id, price: new Prisma.Decimal(addOn!.price) })),
+      // Snapshotted at creation time — see OrderLine.productNameSnapshot's
+      // doc comment (prisma/schema.prisma).
+      productNameSnapshot: product.name,
+      variantNameSnapshot: variant?.name ?? null,
+      skuSnapshot: variant?.sku ?? null,
     });
   }
 
@@ -245,6 +258,9 @@ export async function POST(
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           lineTotal: line.lineTotal,
+          productNameSnapshot: line.productNameSnapshot,
+          variantNameSnapshot: line.variantNameSnapshot,
+          skuSnapshot: line.skuSnapshot,
           addOns: {
             create: line.addOns.map((a) => ({ addOnId: a.addOnId, price: a.price })),
           },

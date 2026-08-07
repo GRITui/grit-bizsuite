@@ -39,6 +39,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     quantityOnHand: v.quantityOnHand,
     reorderThreshold: v.reorderThreshold,
     isActive: v.isActive,
+    vatApplicable: v.vatApplicable,
   }));
 
   const variantIds = product.variants.map((v) => v.id);

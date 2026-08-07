@@ -314,6 +314,11 @@ async function applyQuickSaleOp(
       unitPrice,
       lineTotal: computeLineTotal(unitPrice, selectedAddOns.map((a) => a.price), quantity),
       addOns: selectedAddOns.map((a) => ({ addOnId: a.id, price: a.price })),
+      // Snapshotted at creation time — see OrderLine.productNameSnapshot's
+      // doc comment (prisma/schema.prisma).
+      productNameSnapshot: product.name,
+      variantNameSnapshot: variant?.name ?? null,
+      skuSnapshot: variant?.sku ?? null,
     });
   }
 
@@ -359,6 +364,9 @@ async function applyQuickSaleOp(
             quantity: line.quantity,
             unitPrice: line.unitPrice,
             lineTotal: line.lineTotal,
+            productNameSnapshot: line.productNameSnapshot,
+            variantNameSnapshot: line.variantNameSnapshot,
+            skuSnapshot: line.skuSnapshot,
             addOns: { create: line.addOns },
           })),
         },
@@ -479,6 +487,11 @@ async function applyAddLineOp(
           unitPrice,
           lineTotal,
           externalRef,
+          // Snapshotted at creation time — see OrderLine.productNameSnapshot's
+          // doc comment (prisma/schema.prisma).
+          productNameSnapshot: product.name,
+          variantNameSnapshot: variant?.name ?? null,
+          skuSnapshot: variant?.sku ?? null,
           addOns: { create: selectedAddOns.map((a) => ({ addOnId: a.id, price: a.price })) },
         },
       });

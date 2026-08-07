@@ -13,6 +13,10 @@ const createVariantSchema = z.object({
   unitCost: z.number().nonnegative().optional(),
   quantityOnHand: z.number().int().min(0).default(0),
   reorderThreshold: z.number().int().min(0).default(0),
+  // Grit BizSuite pivot (catalog-unification epic, phase 5): VAT-exemption is
+  // a SKU-level fact. Defaults true (standard-rated) so omitting it keeps
+  // today's behavior.
+  vatApplicable: z.boolean().default(true),
 });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -43,6 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           // StoreStock row and FIFO lot are created too.
           quantityOnHand: 0,
           reorderThreshold: data.reorderThreshold,
+          vatApplicable: data.vatApplicable,
         },
       });
 
@@ -73,6 +78,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       product_id: product.id,
       variant_name: variant.name,
       price: Number(variant.price),
+      vat_applicable: variant.vatApplicable,
+      stock_tracked: product.isStockTracked,
     });
 
     return NextResponse.json({ variant }, { status: 201 });

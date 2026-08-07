@@ -16,6 +16,10 @@ const updateVariantSchema = z.object({
   unitCost: z.number().nonnegative().nullable().optional(),
   reorderThreshold: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
+  // Grit BizSuite pivot (catalog-unification epic, phase 5): VAT-exemption is
+  // a SKU-level fact — Inventory owns it, synced to POS via
+  // catalog.variant_synced's vat_applicable field.
+  vatApplicable: z.boolean().optional(),
   stockAdjustment: z
     .object({
       delta: z.number().int().refine((n) => n !== 0, "Adjustment cannot be zero"),
@@ -114,6 +118,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         product_id: existing.product.id,
         variant_name: variant.name,
         price: Number(variant.price),
+        vat_applicable: variant.vatApplicable,
+        stock_tracked: existing.product.isStockTracked,
       });
     }
 
@@ -154,6 +160,8 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     product_id: existing.product.id,
     variant_name: existing.name,
     price: Number(existing.price),
+    vat_applicable: existing.vatApplicable,
+    stock_tracked: existing.product.isStockTracked,
     deleted: true,
   });
 

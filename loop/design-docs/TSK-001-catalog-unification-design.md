@@ -1,18 +1,18 @@
 # Design Document: Inventory as Single Source of Truth for the Shared Product Catalog
 
-> Status: OWNER_APPROVED — Phases 1-2 SHIPPED. Produced by Researcher-Squad for
-> backlog item TSK-001; owner signed off on this doc's recommendation
-> (cached read-only mirror on POS, Inventory as source of truth) during the
-> `claude/local-app-agent-squad-qsw15r` roadmap-build pass. Phase 1 (extend
-> `catalog.variant_synced` with full product/variant payload) and Phase 2
-> (mirror-first creation on sync miss, replacing the old no-op) are built
-> and verified — see this doc's "Phasing / rollout plan" section for exactly
-> what each phase covers, and BACKLOG.md's "POS ↔ Inventory SKU alignment"
-> entry for the shipped-vs-remaining breakdown. Phases 3-5 (backfill of
-> existing POS-only rows, the `stockTracked` non-inventory product type,
-> the `OrderLine` name/sku snapshot gap, and VAT/promotion ownership
-> handoff) remain open — each is independently scoped below and still
-> needs its own build pass.
+> Status: SHIPPED — all 5 phases. Produced by Researcher-Squad for backlog
+> item TSK-001; owner signed off on this doc's recommendation (cached
+> read-only mirror on POS, Inventory as source of truth) during the
+> `claude/local-app-agent-squad-qsw15r` roadmap-build pass, which then built
+> all five phases across two build passes. See this doc's "Phasing / rollout
+> plan" section for exactly what each phase covers, and BACKLOG.md's
+> "POS ↔ Inventory SKU alignment" entry for the full shipped breakdown.
+> Nothing in this doc's scope remains open; its open questions were each
+> resolved with an explicit default documented in BACKLOG.md rather than
+> left unaddressed (e.g. no POS-local-only escape hatch for made-to-order
+> items — everything becomes a canonical Inventory record; the category
+> mismatch got a simple "Migrated from POS" ItemGroup default, not a real
+> UX redesign, which stays a separate open question if ever revisited).
 
 ## Current state
 

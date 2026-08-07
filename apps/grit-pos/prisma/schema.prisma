@@ -81,7 +81,7 @@ model Tenant {
   /// set by periodically-renewed cabinet resolution. Excl-VAT/VAT split is
   /// derived at read time from `price` and `Variant.vatApplicable` — see
   /// app/api/orders/_lib/queries.ts.
-  vatRate Decimal @db.Decimal(5, 2) @default(7.00)
+  vatRate Decimal @default(7.00) @db.Decimal(5, 2)
 
   /// How `vatRate` applies to a line's stored price. 'INCLUSIVE' (default):
   /// price already includes VAT, which is split back out for reporting only
@@ -101,14 +101,14 @@ model Tenant {
   /// applies (see lib/promotions.ts evaluatePromotions' resolution step).
   discountStackingPolicy String @default("NO_STACKING")
 
-  users                 User[]
-  tables                Table[]
-  categories            Category[]
-  products              Product[]
-  orders                Order[]
-  dailyReconciliations  DailyReconciliation[]
-  promotionRules        PromotionRule[]
-  stores                Store[]
+  users                User[]
+  tables               Table[]
+  categories           Category[]
+  products             Product[]
+  orders               Order[]
+  dailyReconciliations DailyReconciliation[]
+  promotionRules       PromotionRule[]
+  stores               Store[]
 
   @@map("tenants")
 }
@@ -153,8 +153,8 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tenant                    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  closedReconciliations     DailyReconciliation[]
+  tenant                Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  closedReconciliations DailyReconciliation[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -234,15 +234,15 @@ model Variant {
   id         String  @id @default(cuid())
   productId  String
   name       String
-  priceDelta Decimal @db.Decimal(10, 2) @default(0)
+  priceDelta Decimal @default(0) @db.Decimal(10, 2)
 
   /// Denormalized tenant scope so `sku` can be unique per tenant (the
   /// canonical @grit/database schema makes product_variants.sku globally
   /// unique — divergence noted in README). Nullable: legacy hospitality
   /// variants have neither tenantId nor sku.
-  tenantId String?
+  tenantId           String?
   /// Optional child SKU for retail variant-matrix products (e.g. TSHIRT-L-BLK).
-  sku String? @db.VarChar(100)
+  sku                String? @db.VarChar(100)
   /// Inventory's canonical Variant.id, backfilled by the inbound
   /// `catalog.variant_synced` webhook once a local Variant's `sku` matches
   /// (see app/api/events/grit/route.ts). The durable join key for
@@ -251,9 +251,19 @@ model Variant {
   /// packages/shared-events/src/contracts.ts's CatalogVariantSyncedData doc
   /// comment).
   inventoryVariantId String?
+  /// Whether Inventory still offers this specific variant ("deleted": true
+  /// on a synced-matched sku flips this to false — see
+  /// markVariantsDeletedIfProductFullyDeleted in app/api/events/grit/route.ts).
+  /// Parallel to Product.isActive but per-variant: replaces the old "assume
+  /// every sibling variant is gone once this Product has exactly one
+  /// Variant" approximation with a real per-variant flag, so a multi-variant
+  /// mirror Product can have some variants discontinued while siblings stay
+  /// live. Default true so every pre-existing row (and every newly
+  /// mirror-created variant) starts "still offered."
+  isActive           Boolean @default(true)
   /// Attribute axes for matrix variants, e.g. {"size":"L","color":"black"} —
   /// mirrors product_variants.attributes in @grit/database.
-  attributes Json?
+  attributes         Json?
 
   /// Whether this SKU's price is VAT-inclusive (default: true, since most
   /// retail goods are standard-rated). Flip off per item for legally
@@ -276,7 +286,7 @@ model AddOn {
   name      String
   price     Decimal @db.Decimal(10, 2)
 
-  product        Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   orderLineAddOns OrderLineAddOn[]
 
   @@index([productId])
@@ -304,9 +314,9 @@ model Order {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  table  Table?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  store  Store?  @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table  Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  store  Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
 
   lines    OrderLine[]
   payments Payment[]
@@ -320,21 +330,38 @@ model Order {
 }
 
 model OrderLine {
-  id         String  @id @default(cuid())
-  orderId    String
-  productId  String
-  variantId  String?
-  quantity   Int     @default(1)
+  id                  String  @id @default(cuid())
+  orderId             String
+  productId           String
+  variantId           String?
+  quantity            Int     @default(1)
   /// Unit price at time of order (base price + variant delta), snapshotted
   /// so historical reporting is unaffected by later catalog price changes.
-  unitPrice  Decimal @db.Decimal(10, 2)
+  unitPrice           Decimal @db.Decimal(10, 2)
   /// quantity * unitPrice + sum(selected add-on prices) * quantity
-  lineTotal  Decimal @db.Decimal(10, 2)
+  lineTotal           Decimal @db.Decimal(10, 2)
+  /// Snapshot of Product.name / Variant.name / Variant.sku at line-creation
+  /// time — same rationale as unitPrice/lineTotal above ("snapshotted so
+  /// historical reporting is unaffected by later catalog price changes"),
+  /// extended to displayed identity. Catalog-unification phase 4
+  /// (loop/design-docs/TSK-001-catalog-unification-design.md, "OrderLine
+  /// snapshot semantics"): once Inventory can rename a mirrored
+  /// Product/Variant and that flows down via `catalog.variant_synced`, a
+  /// historical order's displayed line name must NOT silently change to
+  /// reflect today's catalog. Nullable because pre-existing lines created
+  /// before this migration have no snapshot — display code
+  /// (app/api/orders/_lib/queries.ts and friends) falls back to the live
+  /// join only for those rows. The live join itself is NOT removed — other
+  /// code still reads current-catalog fields (e.g. inventoryVariantId) off
+  /// it; only the *displayed name/sku* prefers the snapshot.
+  productNameSnapshot String?
+  variantNameSnapshot String?
+  skuSnapshot         String?
   /// Client-generated idempotency key for offline-captured "add_line" ops
   /// (offline queue sync). Unique when present so a retried sync can never
   /// double-add a line — mirrors Payment.externalRef's role for offline
   /// tenders/quick sales.
-  externalRef String? @unique @db.VarChar(100)
+  externalRef         String? @unique @db.VarChar(100)
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
@@ -497,7 +524,7 @@ model DailyReconciliation {
   /// just aggregated per business date instead of per order; snapshotted
   /// here (not recomputed later) so a closed reconciliation stays a fixed
   /// historical record even if a tenant's `vatRate` changes afterward.
-  vatLiabilityTotal Decimal  @db.Decimal(10, 2) @default(0)
+  vatLiabilityTotal Decimal  @default(0) @db.Decimal(10, 2)
   notes             String?
   closedByUserId    String
   createdAt         DateTime @default(now())

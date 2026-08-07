@@ -131,6 +131,9 @@ export async function POST(
     lineTotal: InstanceType<typeof Prisma.Decimal>;
     addOns: { addOnId: string; price: InstanceType<typeof Prisma.Decimal> }[];
     checkoutName: string;
+    productNameSnapshot: string;
+    variantNameSnapshot: string | null;
+    skuSnapshot: string | null;
   };
 
   const validatedLines: ValidatedLine[] = [];
@@ -182,6 +185,11 @@ export async function POST(
         price: new Prisma.Decimal(addOn!.price),
       })),
       checkoutName: nameParts.join(" — "),
+      // Snapshotted at creation time — see OrderLine.productNameSnapshot's
+      // doc comment (prisma/schema.prisma).
+      productNameSnapshot: product.name,
+      variantNameSnapshot: variant?.name ?? null,
+      skuSnapshot: variant?.sku ?? null,
     });
   }
 
@@ -202,6 +210,9 @@ export async function POST(
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           lineTotal: line.lineTotal,
+          productNameSnapshot: line.productNameSnapshot,
+          variantNameSnapshot: line.variantNameSnapshot,
+          skuSnapshot: line.skuSnapshot,
           addOns: {
             create: line.addOns.map((a) => ({ addOnId: a.addOnId, price: a.price })),
           },

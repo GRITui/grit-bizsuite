@@ -12,6 +12,7 @@ type Variant = {
   quantityOnHand: number;
   reorderThreshold: number;
   isActive: boolean;
+  vatApplicable: boolean;
 };
 
 function AdjustStockDialog({ variant, onClose }: { variant: Variant; onClose: () => void }) {
@@ -108,6 +109,7 @@ function EditVariantDialog({ variant, onClose }: { variant: Variant; onClose: ()
   const [name, setName] = useState(variant.name);
   const [price, setPrice] = useState(variant.price);
   const [reorderThreshold, setReorderThreshold] = useState(String(variant.reorderThreshold));
+  const [vatApplicable, setVatApplicable] = useState(variant.vatApplicable);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -123,6 +125,7 @@ function EditVariantDialog({ variant, onClose }: { variant: Variant; onClose: ()
           name,
           price: Number(price || 0),
           reorderThreshold: Number(reorderThreshold || 0),
+          vatApplicable,
         }),
       });
       const data = await res.json();
@@ -179,6 +182,15 @@ function EditVariantDialog({ variant, onClose }: { variant: Variant; onClose: ()
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </div>
+          <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={vatApplicable}
+              onChange={(e) => setVatApplicable(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+            />
+            VAT applicable
+          </label>
         </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
@@ -270,6 +282,7 @@ export function VariantTable({ variants }: { variants: Variant[] }) {
             <th className="px-4 py-3 font-medium">Price</th>
             <th className="px-4 py-3 font-medium">Stock</th>
             <th className="px-4 py-3 font-medium">Reorder at</th>
+            <th className="px-4 py-3 font-medium">VAT</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
@@ -297,6 +310,9 @@ export function VariantTable({ variants }: { variants: Variant[] }) {
                   {variant.quantityOnHand}
                 </td>
                 <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{variant.reorderThreshold}</td>
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                  {variant.vatApplicable ? "Yes" : "No"}
+                </td>
                 <td className="px-4 py-3 text-right">
                   {variant.isActive ? (
                     <>
@@ -347,6 +363,7 @@ export function AddVariantForm({ productId }: { productId: string }) {
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("0");
   const [reorderThreshold, setReorderThreshold] = useState("0");
+  const [vatApplicable, setVatApplicable] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -364,6 +381,7 @@ export function AddVariantForm({ productId }: { productId: string }) {
           price: Number(price || 0),
           quantityOnHand: Number(quantity || 0),
           reorderThreshold: Number(reorderThreshold || 0),
+          vatApplicable,
         }),
       });
       const data = await res.json();
@@ -376,6 +394,7 @@ export function AddVariantForm({ productId }: { productId: string }) {
       setPrice("");
       setQuantity("0");
       setReorderThreshold("0");
+      setVatApplicable(true);
       setOpen(false);
       router.refresh();
     } finally {
@@ -427,6 +446,15 @@ export function AddVariantForm({ productId }: { productId: string }) {
         onChange={(e) => setReorderThreshold(e.target.value)}
         className={`${inputClass} w-24`}
       />
+      <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <input
+          type="checkbox"
+          checked={vatApplicable}
+          onChange={(e) => setVatApplicable(e.target.checked)}
+          className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+        />
+        VAT applicable
+      </label>
       <button
         type="submit"
         disabled={loading}

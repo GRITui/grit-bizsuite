@@ -31,7 +31,7 @@ import { prisma } from "@/lib/prisma";
 // reaches the register (see PromotionRule/Tenant's schema.prisma doc
 // comments and lib/promotions.ts's resolution step).
 //
-// Also handles `catalog.variant_synced`. Catalog-unification phase 2 (see
+// Also handles `catalog.variant_synced`. Catalog-unification phases 2-5 (see
 // loop/backlog-inbox.md TSK-001, loop/design-docs/TSK-001-catalog-unification-
 // design.md): Inventory is now the source of truth for which variants exist;
 // POS is a read-only cached mirror. `handleCatalogVariantSynced` first tries
@@ -43,9 +43,18 @@ import { prisma } from "@/lib/prisma";
 // that product (`"mirror_product_created"`), filing new mirror Products
 // under a synthetic per-tenant "Synced from Inventory" Category since
 // `categoryId` is a required FK and Inventory has no category concept to
-// hand us. `data.deleted: true` still doesn't destroy anything (POS orders
-// may already reference these rows via OrderLine) — see the handler's own
-// doc comment for the exact (partial) "stop offering it" behavior.
+// hand us. `data.deleted: true` never deletes the Variant row itself (POS
+// orders may already reference it via OrderLine) — it flips that Variant's
+// own `isActive` to false, and the parent Product's `isActive` follows once
+// every sibling Variant has also gone inactive (see
+// `markVariantsDeletedIfProductFullyDeleted`'s doc comment for the exact
+// logic). Phase 5: `data.vat_applicable` is written to `Variant.vatApplicable`
+// on every code path that touches a Variant row — Inventory now owns that
+// fact (see CatalogVariantSyncedData's doc comment in
+// packages/shared-events/src/contracts.ts); POS has no admin UI that ever
+// edited it locally, so this is a pure handoff, not a conflict.
+// `data.stock_tracked` is intentionally not persisted (see the handler body)
+// — no consumer exists for it in POS yet.
 //
 // Tenancy: the envelope's `organization_id` is used directly as
 // `PromotionRule.tenantId` (opaque text, matched by equality) — the same
@@ -180,10 +189,26 @@ async function handleDiscountPolicyUpdated(event: DiscountPolicyUpdatedEvent) {
 const SYNCED_CATEGORY_NAME = "Synced from Inventory";
 
 /**
- * First tries the original backfill: `Variant.inventoryVariantId` for the
- * local Variant matching `data.sku` (tenant+sku scoped, same as
- * `Variant.@@unique([tenantId, sku])`). `updateMany` (not `update`) so a
- * miss is detectable via `result.count === 0` rather than a throw.
+ * First tries the original backfill: matches the local Variant by `data.sku`
+ * (tenant+sku scoped, same as `Variant.@@unique([tenantId, sku])`). Bug fix
+ * alongside the phase 4/5 work below: this used to be a bare `updateMany`
+ * that only ever wrote `inventoryVariantId`, silently NOT applying
+ * `product_name`/`variant_name` to an already-linked row despite this
+ * route's own top-of-file doc comment (and the design doc's Phase 1)
+ * describing it as "upsert the new fields onto the existing Variant/Product
+ * row it already matches by SKU." That gap meant a catalog rename could
+ * never actually reach a previously-synced row, which would have made the
+ * phase-4 OrderLine snapshot protection unfalsifiable (nothing to protect
+ * against). Now a match does a real `update` (by id, so we have `productId`
+ * in hand) that writes `name: data.variant_name`, `inventoryVariantId`, and
+ * `vatApplicable: data.vat_applicable` on the Variant, plus `name:
+ * data.product_name` on its parent Product — matching how a mirror-CREATE
+ * (below) already seeds both names from the same event fields. Price is
+ * deliberately left alone on this path — per-variant price reconciliation
+ * on an existing row is still out of scope (see the price note further
+ * down). Phase 5: `vatApplicable` is written to `Variant.vatApplicable`
+ * unconditionally — Inventory owns this fact now, so every code path that
+ * touches a Variant row (this one included) syncs it down.
  *
  * On a miss, catalog-unification phase 2 (Inventory is now the source of
  * truth — see this route's top-of-file doc comment) means we mirror-create
@@ -193,6 +218,9 @@ const SYNCED_CATEGORY_NAME = "Synced from Inventory";
  *   - otherwise a brand-new mirror Product (+ its first Variant) is created,
  *     filed under the tenant's `SYNCED_CATEGORY_NAME` Category, find-or-
  *     created on demand ("mirror_product_created").
+ * Both mirror-create paths also set `vatApplicable: data.vat_applicable` on
+ * the new Variant, same as the backfill path above — no code path that
+ * touches a Variant row skips this.
  * Product.basePrice is only ever set from the FIRST variant synced for a
  * given `product_id` (at Product-creation time) — later variants under the
  * same mirror Product do not overwrite it. A later variant's own effective
@@ -203,23 +231,42 @@ const SYNCED_CATEGORY_NAME = "Synced from Inventory";
  * (same "deferred to a later phase" spirit as CatalogVariantSyncedData.price's
  * doc comment in packages/shared-events/src/contracts.ts).
  *
+ * `data.stock_tracked` is required on the payload (TypeScript enforces we
+ * acknowledge it) but intentionally not persisted anywhere in this app —
+ * there's no admin catalog UI in POS to ever surface it, so a stored-but-
+ * never-read column would be dead weight. No consumer exists yet.
+ *
  * `data.deleted: true` never deletes a mirror-created row outright — POS
- * orders may already reference it via OrderLine. There's no per-Variant
- * "no longer sold" flag in this schema (only Product.isActive), so a
- * deleted-variant event flips the parent Product's `isActive` to false only
- * when EVERY sibling Variant under it has also been synced-deleted; a lone
- * deleted variant among still-live siblings is left as-is (limitation: that
- * one variant keeps being offered until the whole product is deleted or a
- * later phase adds a Variant-level flag).
+ * orders may already reference it via OrderLine. Instead it flips that one
+ * Variant's own `isActive` to false (see `markVariantsDeletedIfProductFullyDeleted`),
+ * and the parent Product's `isActive` follows only once every sibling
+ * Variant under it is also inactive.
  */
 async function handleCatalogVariantSynced(event: CatalogVariantSyncedEvent) {
   const { organization_id, data } = event;
+  // data.stock_tracked is required by the contract but intentionally not
+  // persisted anywhere in this app — see doc comment above. Referenced here
+  // (no-op) purely to acknowledge receipt; nothing reads it back.
+  void data.stock_tracked;
 
-  const backfill = await prisma.variant.updateMany({
+  const existingVariant = await prisma.variant.findFirst({
     where: { tenantId: organization_id, sku: data.sku },
-    data: { inventoryVariantId: data.inventory_variant_id },
   });
-  if (backfill.count > 0) {
+  if (existingVariant) {
+    await prisma.$transaction([
+      prisma.variant.update({
+        where: { id: existingVariant.id },
+        data: {
+          inventoryVariantId: data.inventory_variant_id,
+          vatApplicable: data.vat_applicable,
+          name: data.variant_name,
+        },
+      }),
+      prisma.product.update({
+        where: { id: existingVariant.productId },
+        data: { name: data.product_name },
+      }),
+    ]);
     if (data.deleted === true) {
       await markVariantsDeletedIfProductFullyDeleted(organization_id, data.sku);
     }
@@ -245,6 +292,7 @@ async function handleCatalogVariantSynced(event: CatalogVariantSyncedEvent) {
           tenantId: organization_id,
           sku: data.sku,
           inventoryVariantId: data.inventory_variant_id,
+          vatApplicable: data.vat_applicable,
         },
       });
       return { action: "mirror_variant_created" as const, productId: existingMirrorProduct.id, variantId: variant.id };
@@ -277,6 +325,7 @@ async function handleCatalogVariantSynced(event: CatalogVariantSyncedEvent) {
         tenantId: organization_id,
         sku: data.sku,
         inventoryVariantId: data.inventory_variant_id,
+        vatApplicable: data.vat_applicable,
       },
     });
     return { action: "mirror_product_created" as const, productId: product.id, variantId: variant.id };
@@ -287,26 +336,36 @@ async function handleCatalogVariantSynced(event: CatalogVariantSyncedEvent) {
 
 /**
  * `data.deleted: true` on a sku that WAS locally matched (the `"synced"`
- * backfill path) — see `handleCatalogVariantSynced`'s doc comment for why
- * this only ever touches the parent Product's `isActive`, never deletes the
- * Variant row itself, and only flips it once every sibling Variant under
- * that Product has also lost its `inventoryVariantId` match... which this
- * schema has no per-Variant way to record. Approximation used here: treat
- * "all siblings gone" as "this Product has exactly one Variant" (the one we
- * just matched) — a multi-variant mirror Product is left as-is (documented
- * limitation), since distinguishing "sibling still live on Inventory" from
- * "sibling never synced-deleted" isn't representable without a Variant-level
- * flag this phase deliberately doesn't add (see route's top-of-file comment).
+ * backfill path) — see `handleCatalogVariantSynced`'s doc comment. Uses the
+ * real per-Variant `isActive` flag (catalog-unification phase 3 fix) rather
+ * than the old length-based approximation:
+ *   1. The matched Variant itself gets `isActive: false` — it, specifically,
+ *      is what Inventory just reported gone.
+ *   2. Then every sibling Variant under that Variant's parent Product is
+ *      queried fresh; the parent Product's `isActive` only flips to `false`
+ *      once ALL of them (including the one just updated) are inactive. A
+ *      multi-variant mirror Product with live siblings remaining is left
+ *      active — deleting one variant no longer wrongly leaves every sibling
+ *      (and the product) untouched, nor wrongly deactivates the whole
+ *      product while siblings are still sold.
  */
 async function markVariantsDeletedIfProductFullyDeleted(tenantId: string, sku: string) {
   const variant = await prisma.variant.findFirst({
     where: { tenantId, sku },
-    include: { product: { include: { variants: true } } },
   });
   if (!variant) return;
-  if (variant.product.variants.length <= 1) {
+
+  await prisma.variant.update({
+    where: { id: variant.id },
+    data: { isActive: false },
+  });
+
+  const remainingActiveSiblings = await prisma.variant.count({
+    where: { productId: variant.productId, isActive: true },
+  });
+  if (remainingActiveSiblings === 0) {
     await prisma.product.update({
-      where: { id: variant.product.id },
+      where: { id: variant.productId },
       data: { isActive: false },
     });
   }

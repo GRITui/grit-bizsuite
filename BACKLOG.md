@@ -274,33 +274,62 @@ tenant-wide switch.
   onboarding included) was removed — the app is now ops-kanban task
   tracking only, with no persona concept left to have options for.
 
-### ~~POS ↔ Inventory SKU alignment~~ **Approach 2 shipped, Phases 1-2 of 5.**
+### ~~POS ↔ Inventory SKU alignment~~ **Shipped — all 5 phases.**
 
 Owner picked approach 2 (real shared identity, Inventory as source of truth)
 over approaches 1/3 below — see `loop/design-docs/TSK-001-catalog-unification-design.md`
-for the full design and its five-phase rollout plan. Phases 1-2 are built:
-`CatalogVariantSyncedData` (`packages/shared-events/src/contracts.ts`) now
-carries `product_id`/`variant_name`/`price` alongside the existing fields;
-grit-inventory's three emit sites (`variants/[id]/route.ts`,
-`products/[id]/variants/route.ts`) populate them; grit-pos's webhook handler
-(`app/api/events/grit/route.ts`) mirror-creates a `Product`/`Variant` row
-on a sync-miss instead of the old silent no-op, transactionally, grouping
-repeat variants under the same mirrored product and keying the join on the
-new `Variant.inventoryVariantId` column. grit-inventory also gained
-`Product.isStockTracked` (admin-togglable, skips low-stock alerts) as
-groundwork for Phase 3's made-to-order item type.
+for the full design and its five-phase rollout plan, all now built:
 
-**Still open** — Phase 3 (backfill/reconcile existing POS-only rows, plus
-using `isStockTracked` for genuinely non-inventory items like a
-made-to-order coffee), Phase 4 (denormalize `productName`/`variantName`/
-`sku` onto `OrderLine` at creation time — today's mirror-driven renames can
-retroactively change how a *historical* order displays, the same failure
-mode `unitPrice`'s snapshot was built to avoid), Phase 5 (move
-`Variant.vatApplicable` ownership to Inventory, verify promotion matching
-post-cutover). One known gap from this pass: a multi-variant mirror product
-isn't deactivated when only one sibling variant is deleted (documented
-inline in the POS handler, not fixed). Original problem statement and the
-three candidate approaches kept below for context.
+- **Phases 1-2** — `CatalogVariantSyncedData` (`packages/shared-events/src/contracts.ts`)
+  carries `product_id`/`variant_name`/`price` alongside the existing fields;
+  grit-inventory's three emit sites populate them; grit-pos's webhook
+  handler (`app/api/events/grit/route.ts`) mirror-creates a `Product`/
+  `Variant` row on a sync-miss instead of the old silent no-op,
+  transactionally, grouping repeat variants under the same mirrored product
+  and keying the join on `Variant.inventoryVariantId`. Also fixed along the
+  way: the sync-backfill path used to be a bare `updateMany` that only ever
+  wrote `inventoryVariantId`, never actually applying a renamed
+  `product_name`/`variant_name` to an already-linked row — a catalog rename
+  could never reach POS at all until this was caught and fixed.
+- **Phase 3** — `dev/local-run/backfill-catalog-unification.ts`: an
+  idempotent, resumable script (no maintenance window needed) that
+  reconciles every pre-existing POS-only `Product`/`Variant` row three ways —
+  link to an existing Inventory SKU match, push into Inventory as a new
+  stock-tracked product when the SKU has no match, or push as a new
+  `isStockTracked: false` product (minting a SKU) for the made-to-order
+  case (`sku: null` — "legacy hospitality variants have neither tenantId
+  nor sku"). Run once against the local demo data (4 linked, 2 pushed);
+  safe to re-run any time. A `Variant` with `tenantId: null` — the literal
+  edge of that same schema comment — can't be attributed to an organization
+  at all, so the script surfaces it as a loud warning instead of silently
+  skipping it; none exist in the current demo data.
+- **Phase 4** — `OrderLine` gained `productNameSnapshot`/
+  `variantNameSnapshot`/`skuSnapshot`, populated at line-creation time
+  across all four places a line gets created (staff add-line, offline
+  add-line/quick-sale, pickup checkout, QR table order). Display paths now
+  prefer the snapshot over the live catalog join, closing the same gap
+  `unitPrice`/`lineTotal`'s snapshot already closed for price — a later
+  Inventory-driven rename can no longer retroactively change how a
+  historical order reads.
+- **Phase 5** — `Variant.vatApplicable` ownership moved to grit-inventory
+  (admin-togglable per SKU, synced down via `catalog.variant_synced`'s new
+  `vat_applicable` field — grit-pos had a real, already-wired-up VAT
+  calculation reading this column, just permanently stuck at its `true`
+  default with no sync or edit path until now). `stock_tracked` is also on
+  the wire but intentionally not persisted in grit-pos (no admin catalog UI
+  exists there to ever show it). Promotion matching verified unaffected —
+  live-checked with a real synced/backfilled SKU: `lib/promotions.ts` keys
+  entirely on `sku` strings, never touched by any of this cutover's code
+  paths, exactly as the design doc predicted ("should be a no-op
+  verification pass, not new code").
+- **Multi-variant mirror-deletion gap, fixed** — `Variant` gained a real
+  `isActive` flag, replacing the old "this Product has exactly one Variant"
+  approximation: deleting one variant on the Inventory side now only
+  deactivates that specific variant; the parent Product only goes inactive
+  once every sibling has also been synced-deleted.
+
+Original problem statement and the three candidate approaches kept below
+for context.
 
 ### POS ↔ Inventory SKU alignment (scoping) — original problem statement
 

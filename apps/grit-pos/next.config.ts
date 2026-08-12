@@ -4,8 +4,10 @@ const nextConfig: NextConfig = {
   // Standalone output is required for packaging (see
   // desktop/grit-bizsuite-desktop/scripts/build-resources.sh) — it prunes
   // node_modules down to only what's actually imported at runtime and
-  // emits a self-contained server.js. Has no effect on the normal Vercel
-  // deploy path.
+  // emits a self-contained server.js. Vercel manages routing/output
+  // itself regardless of this setting, so it has no effect on the normal
+  // Vercel deploy path — including the separate `prisma migrate deploy`
+  // step that runs before `next build` even starts.
   output: "standalone",
   // The Neon serverless driver's `ws` dependency breaks at runtime
   // ("mask is not a function") if webpack bundles it — its frame-masking

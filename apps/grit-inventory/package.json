@@ -8,6 +8,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.mjs",
     "db:seed": "tsx prisma/seed.ts",
     "test:smoke": "tsx scripts/smoke-test.ts",

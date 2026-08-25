@@ -290,7 +290,12 @@ export default function OrderBuilder({
         <div className="flex flex-col gap-2">
           <button
             disabled={order.lines.length === 0 || order.status === "closed" || order.status === "cancelled" || pending}
-            onClick={() => setShowTender(true)}
+            onClick={() => {
+              // Don't let a stale cart/line error leak into the money modal
+              // as if the tender itself had failed (issue #42).
+              setError(null);
+              setShowTender(true);
+            }}
             className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
           >
             Tender payment
@@ -322,6 +327,7 @@ export default function OrderBuilder({
           order={order}
           submitting={pending}
           lastChangeDue={lastChangeDue}
+          submitError={error}
           onCancel={() => setShowTender(false)}
           onSubmit={handleTender}
         />

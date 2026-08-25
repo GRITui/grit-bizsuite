@@ -13,6 +13,7 @@
   const loadBtn = document.getElementById("loadBtn");
   const statusEl = document.getElementById("status");
   const upstreamChipsEl = document.getElementById("upstreamChips");
+  const degradedBannerEl = document.getElementById("degradedBanner");
   const lockedPanel = document.getElementById("lockedPanel");
   const lockedMessage = document.getElementById("lockedMessage");
   const resultArea = document.getElementById("resultArea");
@@ -37,6 +38,27 @@
     statusEl.className = kind || "";
   }
 
+  // Resolves the effective per-source marker exactly the way the chips
+  // always have (the margins body wins for the shared POS source, the labor
+  // body carries taskboard) — the chips, degraded banner, KPI flags and
+  // chart hatching all read from this one list so they can't disagree.
+  function upstreamMarkers(marginsBody, laborBody) {
+    const mu = marginsBody && marginsBody.upstream ? marginsBody.upstream : {};
+    const lu = laborBody && laborBody.upstream ? laborBody.upstream : {};
+    return [
+      { label: "grit-pos", marker: mu.pos || lu.pos || "unconfigured" },
+      { label: "grit-inventory", marker: mu.inventory || "unconfigured" },
+      { label: "grit-taskboard", marker: lu.taskboard || "unconfigured" },
+    ];
+  }
+
+  function markerWord(marker) {
+    if (marker === "ok") return "connected";
+    if (marker === "unconfigured") return "not connected (no URL configured)";
+    if (marker === "missing") return "not connected (endpoint unavailable)";
+    return "error";
+  }
+
   function setChip(container, label, marker) {
     const chip = document.createElement("span");
     chip.className = "chip " + (marker || "unconfigured");
@@ -44,49 +66,51 @@
     dot.className = "dot";
     chip.appendChild(dot);
     const text = document.createElement("span");
-    const statusWord =
-      marker === "ok"
-        ? "connected"
-        : marker === "unconfigured"
-          ? "not connected (no URL configured)"
-          : marker === "missing"
-            ? "not connected (endpoint unavailable)"
-            : "error";
-    text.textContent = `${label}: ${statusWord}`;
+    text.textContent = `${label}: ${markerWord(marker)}`;
     chip.appendChild(text);
     container.appendChild(chip);
   }
 
-  function renderUpstreamChips(marginsBody, laborBody) {
+  function renderUpstreamChips(markers) {
     upstreamChipsEl.innerHTML = "";
-    const posMarker =
-      (marginsBody && marginsBody.upstream && marginsBody.upstream.pos) ||
-      (laborBody && laborBody.upstream && laborBody.upstream.pos) ||
-      "unconfigured";
-    setChip(upstreamChipsEl, "grit-pos", posMarker);
-    setChip(
-      upstreamChipsEl,
-      "grit-inventory",
-      marginsBody && marginsBody.upstream ? marginsBody.upstream.inventory : "unconfigured",
-    );
-    setChip(
-      upstreamChipsEl,
-      "grit-taskboard",
-      laborBody && laborBody.upstream ? laborBody.upstream.taskboard : "unconfigured",
-    );
+    for (const m of markers) setChip(upstreamChipsEl, m.label, m.marker);
   }
 
-  function kpiTile(value, label) {
+  /* Degraded-upstream banner (issue #45): when any source didn't answer, say
+   * so loudly next to the numbers — a zero there means "no data", not "a
+   * quiet day". Names each affected source and when the snapshot was fetched
+   * (client-side time of the completed fetch; the API doesn't send one). */
+  function renderDegradedBanner(markers, fetchedAt) {
+    const degraded = markers.filter((m) => m.marker !== "ok");
+    if (degraded.length === 0) {
+      degradedBannerEl.style.display = "none";
+      degradedBannerEl.textContent = "";
+      return;
+    }
+    degradedBannerEl.textContent =
+      "\u26a0 Degraded data \u2014 " +
+      degraded.map((m) => `${m.label}: ${markerWord(m.marker)}`).join("; ") +
+      ". Figures from these sources read as zeros or gaps because the data was" +
+      " unavailable when fetched \u2014 they are not real zeros." +
+      ` Fetched at ${fetchedAt.toISOString()}.`;
+    degradedBannerEl.style.display = "block";
+  }
+
+  function kpiTile(value, label, degraded) {
     const tile = document.createElement("div");
-    tile.className = "kpiTile";
+    tile.className = "kpiTile" + (degraded ? " degraded" : "");
     const v = document.createElement("div");
     v.className = "kpiValue";
     v.textContent = value;
     const l = document.createElement("div");
     l.className = "kpiLabel";
-    l.textContent = label;
+    l.textContent = label + (degraded ? " \u26a0" : "");
     tile.appendChild(v);
     tile.appendChild(l);
+    if (degraded) {
+      tile.title =
+        "Upstream source unavailable \u2014 this figure may be a placeholder zero, not real data.";
+    }
     return tile;
   }
 
@@ -100,20 +124,57 @@
     return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }) + (suffix || "");
   }
 
-  function renderKpis(marginsBody, laborBody) {
+  function renderKpis(marginsBody, laborBody, markers) {
+    // Flag every tile whose figure depends on a source that didn't answer,
+    // including both sides of the labor aggregator (issue #45 parity).
+    const markerByLabel = {};
+    for (const m of markers) markerByLabel[m.label] = m.marker;
+    const posOk = markerByLabel["grit-pos"] === "ok";
+    const invOk = markerByLabel["grit-inventory"] === "ok";
+    const taskboardOk = markerByLabel["grit-taskboard"] === "ok";
     kpiBar.innerHTML = "";
-    kpiBar.appendChild(kpiTile(fmtMoney(marginsBody.revenue.total), "POS revenue"));
-    kpiBar.appendChild(kpiTile(fmtMoney(marginsBody.cogs.total), "Inventory COGS"));
-    kpiBar.appendChild(kpiTile(fmtMoney(marginsBody.margin.total), "Gross margin"));
-    kpiBar.appendChild(kpiTile(fmtNum(marginsBody.margin.pct, "%"), "Margin %"));
-    kpiBar.appendChild(kpiTile(fmtNum(laborBody.transactions.count), "Transactions"));
-    kpiBar.appendChild(kpiTile(fmtNum(laborBody.tasks.avg_completion_hours, " hrs"), "Avg task completion"));
+    kpiBar.appendChild(kpiTile(fmtMoney(marginsBody.revenue.total), "POS revenue", !posOk));
+    kpiBar.appendChild(kpiTile(fmtMoney(marginsBody.cogs.total), "Inventory COGS", !invOk));
     kpiBar.appendChild(
-      kpiTile(fmtNum(laborBody.efficiency.transactions_per_completed_task), "Txns / completed task"),
+      kpiTile(fmtMoney(marginsBody.margin.total), "Gross margin", !posOk || !invOk),
+    );
+    kpiBar.appendChild(kpiTile(fmtNum(marginsBody.margin.pct, "%"), "Margin %", !posOk || !invOk));
+    kpiBar.appendChild(kpiTile(fmtNum(laborBody.transactions.count), "Transactions", !posOk));
+    kpiBar.appendChild(
+      kpiTile(fmtNum(laborBody.tasks.avg_completion_hours, " hrs"), "Avg task completion", !taskboardOk),
+    );
+    kpiBar.appendChild(
+      kpiTile(
+        fmtNum(laborBody.efficiency.transactions_per_completed_task),
+        "Txns / completed task",
+        !posOk || !taskboardOk,
+      ),
     );
   }
 
-  function renderChart(marginsBody) {
+  /* Diagonal-stripe fill so a degraded series reads as "unverified data",
+   * not a solid bar of real zeros (issue #45). Pure canvas pattern — no new
+   * dependency; falls back to the flat color if patterns aren't available. */
+  function hatchPattern(color) {
+    const tile = document.createElement("canvas");
+    tile.width = 8;
+    tile.height = 8;
+    const ctx = tile.getContext("2d");
+    if (!ctx || typeof ctx.createPattern !== "function") return color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-2, 2);
+    ctx.lineTo(2, -2);
+    ctx.moveTo(0, 8);
+    ctx.lineTo(8, 0);
+    ctx.moveTo(6, 10);
+    ctx.lineTo(10, 6);
+    ctx.stroke();
+    return ctx.createPattern(tile, "repeat") || color;
+  }
+
+  function renderChart(marginsBody, markers) {
     const canvas = document.getElementById("dashCanvas");
     if (chart) {
       chart.destroy();
@@ -125,32 +186,40 @@
     // /api/aggregate-margins `daily[].cogs`/`margin` series is only
     // non-null when the grit-inventory upstream call succeeded (see
     // aggregate-margins.js), so those two datasets are omitted rather than
-    // drawn as a flat zero line when it didn't.
+    // drawn as a flat zero line when it didn't. When a source answered but
+    // is flagged non-ok anyway (defensive), its series still draws but with
+    // a hatched fill / dashed line + "(source unavailable)" label so it
+    // can't be mistaken for real data.
+    const markerByLabel = {};
+    for (const m of markers) markerByLabel[m.label] = m.marker;
+    const posDegraded = markerByLabel["grit-pos"] !== "ok";
+    const inventoryDegraded = markerByLabel["grit-inventory"] !== "ok";
     const hasCogs = daily.some((d) => d.cogs !== null && d.cogs !== undefined);
     const hasMargin = daily.some((d) => d.margin !== null && d.margin !== undefined);
     const datasets = [
       {
         type: "bar",
-        label: "Revenue",
+        label: posDegraded ? "Revenue (source unavailable)" : "Revenue",
         data: daily.map((d) => d.revenue),
-        backgroundColor: "#2d6cdf",
+        backgroundColor: posDegraded ? hatchPattern("#2d6cdf") : "#2d6cdf",
       },
     ];
     if (hasCogs) {
       datasets.push({
         type: "bar",
-        label: "COGS",
+        label: inventoryDegraded ? "COGS (source unavailable)" : "COGS",
         data: daily.map((d) => d.cogs),
-        backgroundColor: "#df4b4b",
+        backgroundColor: inventoryDegraded ? hatchPattern("#df4b4b") : "#df4b4b",
       });
     }
     if (hasMargin) {
       datasets.push({
         type: "line",
-        label: "Margin",
+        label: inventoryDegraded ? "Margin (source unavailable)" : "Margin",
         data: daily.map((d) => d.margin),
         borderColor: "#2ddf8a",
         backgroundColor: "#2ddf8a",
+        borderDash: inventoryDegraded ? [6, 4] : undefined,
         fill: false,
         tension: 0.25,
         yAxisID: "y",
@@ -251,6 +320,7 @@
     resultArea.style.display = "none";
     lockedPanel.style.display = "none";
     upstreamChipsEl.innerHTML = "";
+    degradedBannerEl.style.display = "none";
 
     try {
       const [marginsRes, laborRes] = await Promise.all([
@@ -286,9 +356,14 @@
 
       hideLocked();
       lastPayload = { margins: marginsRes.body, labor: laborRes.body };
-      renderUpstreamChips(marginsRes.body, laborRes.body);
-      renderKpis(marginsRes.body, laborRes.body);
-      renderChart(marginsRes.body);
+      // Timestamp taken once both responses are in — it's when this
+      // snapshot was actually fetched from the aggregators.
+      const fetchedAt = new Date();
+      const markers = upstreamMarkers(marginsRes.body, laborRes.body);
+      renderUpstreamChips(markers);
+      renderDegradedBanner(markers, fetchedAt);
+      renderKpis(marginsRes.body, laborRes.body, markers);
+      renderChart(marginsRes.body, markers);
       resultArea.style.display = "block";
       setStatus(`Loaded ${from} → ${to}.`, "success");
     } catch (err) {

@@ -279,3 +279,93 @@ through triage, sprint planning, and execution.
     delivery, not because anything further is blocking.
   </researcher_notes>
 </task_item>
+
+<task_item>
+  <id>TSK-004</id>
+  <source>QA_TESTER_SIM</source>
+  <status>READY_FOR_PM</status>
+  <priority>HIGH</priority>
+  <title>Blocker: grit-pos checkout promotions engine has zero unit-test coverage</title>
+  <description>
+    apps/grit-pos/lib/promotions.ts decides every discount at the register
+    (evaluatePromotions / resolveStacking / resolveExclusions) and no existing
+    suite covers it — taskboard/reports/passport suites don't touch this app.
+    Ask: port the pricing domain of the QA simulation (UC-P1..P9) into a real
+    apps/grit-pos test suite wired into CI so discount-math regressions fail
+    the build.
+    Upstream: https://github.com/GRITui/grit-bizsuite/issues/52
+  </description>
+  <researcher_notes>
+    QA-Tester-Squad delivered seed coverage: loop/qa/retailer-usecase-sim.mjs,
+    20 use-case tests against the REAL modules (promotions engine, event
+    contracts, HMAC webhook transport, passport entitlements) — run:
+    node --experimental-strip-types --import ./loop/qa/register-hooks.mjs
+    loop/qa/retailer-usecase-sim.mjs → tests 20 · pass 20 · fail 0.
+    All engine behaviors currently correct under simulation; the gap is that
+    none of this was asserted anywhere before, so any refactor silently risks
+    the money path.
+  </researcher_notes>
+</task_item>
+
+<task_item>
+  <id>TSK-005</id>
+  <source>QA_TESTER_SIM</source>
+  <status>READY_FOR_PM</status>
+  <priority>MEDIUM</priority>
+  <title>resolveExclusions drops the higher-value rule when the smaller one wins the id sort</title>
+  <description>
+    Pairwise exclusion resolution drops the later-in-id-order rule regardless
+    of discount magnitude — merchant configures "New Customer 15% never stacks
+    with Clearance" and customers can end up with the €2 rule instead of the
+    €30 rule purely because of cuid sort order. Proposal: drop the lower-
+    amount entry of each mutually-exclusive pair (tie-break ascending id).
+    Flip UC-P4-style expectations intentionally when fixed.
+    Upstream: https://github.com/GRITui/grit-bizsuite/issues/50
+  </description>
+  <researcher_notes>
+    Found while simulating UC-P4 (order-wide exclusion across disjoint SKUs);
+    current behavior is deterministic but business outcome is invisible-cuid
+    dependent rather than merchant-intent dependent.
+  </researcher_notes>
+</task_item>
+
+<task_item>
+  <id>TSK-006</id>
+  <source>QA_TESTER_SIM</source>
+  <status>READY_FOR_PM</status>
+  <priority>MEDIUM</priority>
+  <title>Durable outbox delivery for manpower.shift_unassigned (currently best-effort)</title>
+  <description>
+    The only event without outbox+drain is the one that puts staff on the
+    floor: an unassigned shift whose webhook hits a briefly-down taskboard is
+    lost forever — no "Cover role shift" card, uncovered register at peak.
+    Route it through GritEventBus.publish like every other event so blips
+    degrade to delayed delivery instead of silent loss.
+    Upstream: https://github.com/GRITui/grit-bizsuite/issues/49
+  </description>
+  <researcher_notes>
+    Retailer ops scenario simulated during sprint QA pass; README already
+    admits the gap ("best-effort delivery only, no durable outbox yet").
+  </researcher_notes>
+</task_item>
+
+<task_item>
+  <id>TSK-007</id>
+  <source>QA_TESTER_SIM</source>
+  <status>READY_FOR_PM</status>
+  <priority>LOW</priority>
+  <title>Per-SKU/per-line discount attribution from evaluatePromotions</title>
+  <description>
+    evaluate* collapse each rule to one number over all SKUs; receipts show a
+    single opaque Discounts total, reports can't break margin down by promo,
+    and NO_STACKING stays conservative-atomic (documented HANDOFF tradeoff).
+    Refactor evaluate* to also return per-Sku discount maps (backward-compat
+    public shape), expose per-line attribution to receipt renderer.
+    Upstream: https://github.com/GRITui/grit-bizsuite/issues/51
+  </description>
+  <researcher_notes>
+    Surfaced by UC-P2/P7 simulations where atomic bundle semantics were
+    verified correct-but-opaque; HANDOFF.md names this exact refactor as the
+    prerequisite for smarter stacking.
+  </researcher_notes>
+</task_item>

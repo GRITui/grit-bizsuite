@@ -283,7 +283,7 @@ through triage, sprint planning, and execution.
 <task_item>
   <id>TSK-004</id>
   <source>QA_TESTER_SIM</source>
-  <status>READY_FOR_PM</status>
+  <status>TRIAGED_SPRINT_READY</status>
   <priority>HIGH</priority>
   <title>Blocker: grit-pos checkout promotions engine has zero unit-test coverage</title>
   <description>
@@ -310,7 +310,7 @@ through triage, sprint planning, and execution.
 <task_item>
   <id>TSK-005</id>
   <source>QA_TESTER_SIM</source>
-  <status>READY_FOR_PM</status>
+  <status>TRIAGED_SPRINT_READY</status>
   <priority>MEDIUM</priority>
   <title>resolveExclusions drops the higher-value rule when the smaller one wins the id sort</title>
   <description>
@@ -332,7 +332,7 @@ through triage, sprint planning, and execution.
 <task_item>
   <id>TSK-006</id>
   <source>QA_TESTER_SIM</source>
-  <status>READY_FOR_PM</status>
+  <status>TRIAGED_SPRINT_READY</status>
   <priority>MEDIUM</priority>
   <title>Durable outbox delivery for manpower.shift_unassigned (currently best-effort)</title>
   <description>
@@ -352,7 +352,7 @@ through triage, sprint planning, and execution.
 <task_item>
   <id>TSK-007</id>
   <source>QA_TESTER_SIM</source>
-  <status>READY_FOR_PM</status>
+  <status>TRIAGED_SPRINT_READY</status>
   <priority>LOW</priority>
   <title>Per-SKU/per-line discount attribution from evaluatePromotions</title>
   <description>
@@ -369,3 +369,15 @@ through triage, sprint planning, and execution.
     prerequisite for smarter stacking.
   </researcher_notes>
 </task_item>
+
+<!-- TRIAGE ADDENDUM — board task task_0001 (sprint-planning pass) -->
+Triage decision (acting PM seat, QA session 2026-08-26): TSK-004…007 moved
+READY_FOR_PM → TRIAGED_SPRINT_READY. Execution order for next sprint:
+1. TSK-004 (#52, HIGH) — port UC-P1..P9 into apps/grit-pos CI suite first;
+   every later pricing change then lands with a regression gate.
+2. TSK-006 (#49, MEDIUM) — durable outbox for shift_unassigned (ops risk).
+3. TSK-005 (#50, MEDIUM) — exclusion tiebreak; BLOCKED on product decision
+   (bigger-discount-wins vs positional determinism) before build starts.
+4. TSK-007 (#51, LOW) — per-SKU attribution; opportunistic if capacity.
+Regression gate for items 2–4: loop/qa/retailer-usecase-sim.mjs must stay
+20/20 (flip UC-P4/P7 expectations intentionally where behavior changes).
